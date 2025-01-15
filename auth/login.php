@@ -1,15 +1,28 @@
 <?php
 header('Content-Type: application/json');
 include("../config/dbconnection.php");
-include("../config/helpers.php");
-use \Firebase\JWT\JWT; // Import JWT class
+require_once '../vendor/autoload.php';
+require_once("../config/helpers.php"); // Pastikan hanya ini yang digunakan
+use \Firebase\JWT\JWT;
 
-$secretKey = "your-secret-key"; // Ganti dengan key rahasia Anda
+// Muat secret key dari .env
+$dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
+$dotenv->load();
+$secretKey = $_ENV['JWT_SECRET'] ?? null;
+
+if (empty($secretKey)) {
+    respondJSON(['success' => false, 'error' => 'Secret key tidak ditemukan'], 500);
+}
+
+
+if (empty($secretKey)) {
+    respondJSON(['success' => false, 'error' => 'Secret key tidak ditemukan'], 500);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Ambil input dari user
-    $nama_toko = sanitizeInput($_POST['nama_toko'] ?? null);
-    $password = sanitizeInput($_POST['password'] ?? null);
+    $nama_toko = sanitizeInput($_POST['nama_toko'] ?? '');
+    $password = sanitizeInput($_POST['password'] ?? '');
 
     // Validasi input
     if (empty($nama_toko) || empty($password)) {
@@ -18,7 +31,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     try {
         // Query toko berdasarkan nama_toko
-        $query = "SELECT id, id_user, password FROM toko WHERE nama_toko = ?";
+        $query = "SELECT u.id AS id_user, t.id AS id_toko, u.password 
+                  FROM users u
+                  JOIN toko t ON t.id_user = u.id
+                  WHERE t.nama_toko = ?";
         $stmt = $pdo->prepare($query);
         $stmt->execute([$nama_toko]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -34,6 +50,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Encode payload menjadi JWT
             $jwt = JWT::encode($payload, $secretKey, 'HS256');
 
+            // Waktu sekarang (created_at) dan waktu kedaluwarsa (expired_at)
+            $createdAt = date('Y-m-d H:i:s');
+            $expiredAt = date('Y-m-d H:i:s', time() + 3600);
+
+            // Simpan token ke tabel sessions
+            $insertQuery = "INSERT INTO sessions (user_id, token, expired_at, created_at) VALUES (?, ?, ?, ?)";
+            $insertStmt = $pdo->prepare($insertQuery);
+            $insertStmt->execute([$user['id_user'], $jwt, $expiredAt, $createdAt]);
 
             // Kirim token ke klien
             respondJSON([
@@ -53,4 +77,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Jika metode request bukan POST
     respondJSON(['success' => false, 'error' => 'Invalid request method'], 405);
 }
+
 ?>

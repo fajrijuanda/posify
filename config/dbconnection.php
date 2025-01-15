@@ -1,6 +1,6 @@
 <?php
 $host = 'localhost';
-$dbname = 'your_database';
+$dbname = 'db_posify';
 $username = 'root';
 $password = '';
 

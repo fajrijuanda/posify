@@ -47,8 +47,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id_user = $pdo->lastInsertId();
 
         // Insert data ke tabel Toko
-        $queryToko = "INSERT INTO toko (id_user, nama_toko, deskripsi, nomor_telepon, alamat, nomor_rekening, logo) 
-                      VALUES (?, ?, NULL, NULL, NULL, NULL, NULL)";
+       $queryToko = "INSERT INTO toko (id_user, nama_toko, nomor_telepon, alamat, nomor_rekening, logo) 
+              VALUES (?, ?, NULL, NULL, NULL, NULL)";
+
         $stmtToko = $pdo->prepare($queryToko);
         $stmtToko->execute([$id_user, $nama_toko]);
 

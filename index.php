@@ -1,7 +1,12 @@
 <?php
 header('Content-Type: application/json');
 // Autoloader Composer
-require_once __DIR__ . '/vendor/autoload.php'; // Pastikan path sesuai
+require_once __DIR__ . '/vendor/autoload.php'; 
+
+$dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
+$dotenv->load();
+
+$secretKey = $_ENV['JWT_SECRET'];
 
 // Menambahkan Middleware untuk validasi token
 include('../middlewares/auth_middleware.php'); // Menggunakan middleware untuk validasi token
@@ -32,6 +37,9 @@ switch (true) {
         break;
     case preg_match('/^\/auth\/reset_password$/', $path):
         include('./auth/reset_password.php');
+        break;
+    case preg_match('/^\/auth\/request_reset$/', $path):
+        include('./auth/request_reset.php');
         break;
 
     // Checkout

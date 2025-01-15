@@ -1,6 +1,7 @@
 {
     "require": {
         "midtrans/midtrans-php": "^2.6",
-        "firebase/php-jwt": "^6.10"
+        "firebase/php-jwt": "^6.10",
+        "vlucas/phpdotenv": "^5.6"
     }
 }
