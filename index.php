@@ -9,7 +9,7 @@ $dotenv->load();
 $secretKey = $_ENV['JWT_SECRET'];
 
 // Menambahkan Middleware untuk validasi token
-include('../middlewares/auth_middleware.php'); // Menggunakan middleware untuk validasi token
+// include('../middlewares/auth_middleware.php'); 
 // Include koneksi database dan konfigurasi
 include("./config/dbconnection.php");
 include("./config/helpers.php");

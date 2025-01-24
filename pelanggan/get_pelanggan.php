@@ -1,14 +1,23 @@
 <?php
+// code middleware
 header('Content-Type: application/json');
 require_once '../config/dbconnection.php';
 include('../config/cors.php');
-include('../middlewares/auth_middleware.php'); // Middleware untuk validasi token
+require_once __DIR__ . '/../middlewares/auth_middleware.php';
 
-// Validasi token untuk otentikasi
-$user_id = validateToken($pdo); // Mendapatkan user_id dari token jika valid
+$authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+
+$authResult = validateToken($authHeader);
+if (isset($authResult['error'])) {
+    http_response_code(401);
+    echo json_encode($authResult);
+    exit;
+}
+
+// show all pelanggan
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     try {
-        $query = "SELECT id, nama, nomor_telepon, email FROM pelanggan";
+        $query = "SELECT id, id_toko, nomor_telepon, alamat FROM pelanggan";
         $stmt = $pdo->prepare($query);
         $stmt->execute();
         $result = $stmt->fetchAll(PDO::FETCH_ASSOC);

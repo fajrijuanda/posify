@@ -1,7 +1,17 @@
 <?php
 header('Content-Type: application/json');
-include("../config/dbconnection.php");
-include('../middlewares/auth_middleware.php'); // Middleware untuk validasi token
+require_once '../config/dbconnection.php';
+include('../config/cors.php');
+require_once __DIR__ . '/../middlewares/auth_middleware.php';
+
+$authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+$authResult = validateToken($authHeader);
+if (isset($authResult['error'])) {
+    http_response_code(401);
+    echo json_encode($authResult);
+    exit;
+}
+$user_id = $authResult;  // Ambil user_id dari hasil validasi token
 
 // Validasi token untuk otentikasi
 $user_id = validateToken($pdo); // Mendapatkan user_id dari token jika valid

@@ -7,6 +7,6 @@ function respondJSON($data, $status = 200) {
 }
 
 function sanitizeInput($input) {
-    return htmlspecialchars(strip_tags($input));
+    return htmlspecialchars(strip_tags(trim($input)));
 }
 ?>

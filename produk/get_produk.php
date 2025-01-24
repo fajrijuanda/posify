@@ -2,10 +2,25 @@
 header('Content-Type: application/json');
 include('../config/cors.php');
 include("../config/dbconnection.php");
-include('../middlewares/auth_middleware.php'); // Middleware untuk validasi token
+include('../middlewares/auth_middleware.php'); 
+include('../config/helpers.php');  
+
+// Load .env jika menggunakan PHP dotenv
+$dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/../');
+$dotenv->load();
+$baseURL = $_ENV['APP_URL'] ?? 'http://posify.test';
 
 // Validasi token untuk otentikasi
-$user_id = validateToken($pdo); // Mendapatkan user_id dari token jika valid
+$authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+$authResult = validateToken($authHeader);
+if (isset($authResult['error'])) {
+    http_response_code(401);
+    echo json_encode($authResult);
+    exit;
+}
+
+// Ambil user_id jika valid
+$user_id = $authResult;
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $id_toko = $_GET['id_toko'] ?? null;
@@ -47,6 +62,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $stmt->execute([$id_toko]);
         $produk = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        // Tambahkan URL lengkap ke gambar produk
+        foreach ($produk as &$item) {
+            if (!empty($item['gambar'])) {
+                $item['gambar_url'] = $baseURL .$item['gambar'];
+            } else {
+                $item['gambar_url'] = null;
+            }
+        }
+
         echo json_encode([
             'success' => true,
             'data' => $produk
@@ -63,4 +87,3 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         'error' => 'Invalid request method'
     ]);
 }
-?>

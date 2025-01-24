@@ -23,32 +23,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     try {
-        // Upload gambar jika ada
-        $gambar = null;
-        if (isset($_FILES['gambar']) && $_FILES['gambar']['error'] === UPLOAD_ERR_OK) {
-            $uploadDir = '../uploads/produk/';
-            $fileName = time() . '_' . basename($_FILES['gambar']['name']);
-            $filePath = $uploadDir . $fileName;
-
-            if (move_uploaded_file($_FILES['gambar']['tmp_name'], $filePath)) {
-                $gambar = $fileName;
-            } else {
-                throw new Exception('Gagal mengupload gambar');
-            }
+        $uploadDir = __DIR__ . '/../uploads/produk/';
+        $fileName = time() . '_' . basename($_FILES['gambar']['name']);
+        $targetFilePath = $uploadDir . $fileName;
+    
+        // Periksa folder
+        if (!is_dir($uploadDir)) {
+            mkdir($uploadDir, 0777, true);
         }
-
-        // Simpan data produk
+    
+        if (move_uploaded_file($_FILES['gambar']['tmp_name'], $targetFilePath)) {
+            $gambar = 'uploads/produk/' . $fileName;
+        } else {
+            throw new Exception('Gagal mengupload gambar. Path tujuan: ' . $targetFilePath);
+        }
+    
+        // Simpan data produk ke database
         $query = "
             INSERT INTO produk (id_toko, nama_produk, harga_modal, harga_jual, stok, deskripsi, gambar)
             VALUES (?, ?, ?, ?, ?, ?, ?)";
         $stmt = $pdo->prepare($query);
         $stmt->execute([$id_toko, $nama_produk, $harga_modal, $harga_jual, $stok, $deskripsi, $gambar]);
-
+    
         echo json_encode([
             'success' => true,
-            'message' => 'Produk berhasil ditambahkan'
+            'message' => 'Produk berhasil ditambahkan',
+            'image_url' => $_ENV['APP_URL'] . '/' . $gambar // Gunakan APP_URL dari .env jika tersedia
         ]);
     } catch (PDOException $e) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Database error: ' . $e->getMessage()
+        ]);
+    } catch (Exception $e) {
+        echo json_encode([
+            'success' => false,
+            'error' => $e->getMessage()
+        ]);
+    }
+     catch (PDOException $e) {
         echo json_encode([
             'success' => false,
             'error' => 'Database error: ' . $e->getMessage()

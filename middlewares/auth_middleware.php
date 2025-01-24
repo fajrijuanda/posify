@@ -1,49 +1,50 @@
-<?php 
-use \Firebase\JWT\JWT; 
-require_once '../vendor/autoload.php'; 
+<?php
+require_once __DIR__ . '/../vendor/autoload.php';
+use Firebase\JWT\JWT;
+use Firebase\JWT\Key;
+use Dotenv\Dotenv;
 
-// Muat file .env menggunakan vlucas/phpdotenv
-$dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
+// Load environment variables
+$dotenv = Dotenv::createImmutable(__DIR__ . '/../');
 $dotenv->load();
 
-// Fungsi untuk validasi token
-function validateToken($pdo) {
-    // Ambil secret key dari .env
-    $secretKey = $_ENV['JWT_SECRET'] ?? null;
+$secretKey = $_ENV['JWT_SECRET'] ?? null;
 
-    // Pastikan $secretKey diinisialisasi sebelum digunakan
-    if (empty($secretKey)) {
-        respondJSON(['success' => false, 'error' => 'Secret key tidak ditemukan'], 500);
-    }
-
-    // Ambil token dari header Authorization
-    $headers = getallheaders();
-    if (!isset($headers['Authorization'])) {
-        respondJSON(['success' => false, 'error' => 'Token tidak ditemukan'], 401);
-    }
-
-    $authHeader = $headers['Authorization'];
-    if (!preg_match('/Bearer\s(\S+)/', $authHeader, $matches)) {
-        respondJSON(['success' => false, 'error' => 'Format token tidak valid'], 401);
-    }
-
-    $token = $matches[1];
-
-    try {
-        // Decode token JWT
-        $decoded = JWT::decode($token, $secretKey, ['HS256']);
-
-        // Kembalikan user_id dari token yang sudah didecode
-        return $decoded->user_id;
-    } catch (Exception $e) {
-        respondJSON(['success' => false, 'error' => 'Token tidak valid atau kedaluwarsa'], 401);
-    }
+if (!$secretKey) {
+    http_response_code(500);
+    echo json_encode(["error" => "JWT secret key is not set"]);
+    exit;
 }
 
-// Fungsi untuk mengirimkan respons JSON
-function respondJSON($data, $status = 200) {
-    header("Content-Type: application/json");
-    http_response_code($status);
-    echo json_encode($data);
-    exit;
+function validateToken($authHeader) {
+    global $secretKey;
+
+    if (!$authHeader || !is_string($authHeader)) {
+        return ["error" => "Token not provided or invalid type"];
+    }
+
+    // Validasi format "Bearer {token}"
+    $tokenParts = explode(' ', trim($authHeader));
+
+    if (count($tokenParts) !== 2 || strtolower($tokenParts[0]) !== 'bearer') {
+        return ["error" => "Invalid token format"];
+    }
+
+    $jwtToken = $tokenParts[1];
+
+    try {
+        $decoded = JWT::decode($jwtToken, new Key($secretKey, 'HS256'));
+
+        if (!isset($decoded->user_id)) {
+            return ["error" => "Invalid token payload"];
+        }
+
+        return $decoded->user_id;
+    } catch (\Firebase\JWT\ExpiredException $e) {
+        return ["error" => "Token has expired"];
+    } catch (\Firebase\JWT\SignatureInvalidException $e) {
+        return ["error" => "Invalid token signature"];
+    } catch (Exception $e) {
+        return ["error" => "Token verification failed: " . $e->getMessage()];
+    }
 }
