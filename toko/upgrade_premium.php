@@ -3,12 +3,24 @@ header('Content-Type: application/json');
 include("../config/dbconnection.php"); // Sesuaikan path jika diperlukan
 include('../middlewares/auth_middleware.php'); // Middleware untuk validasi token
 
+// Set timezone ke Asia/Jakarta
+date_default_timezone_set('Asia/Jakarta');
+
 // Validasi token untuk otentikasi
-$user_id = validateToken($pdo); // Mendapatkan user_id dari token jika valid
+$user_id = validateToken($pdo);
+if (!$user_id) {
+    http_response_code(401);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Token tidak valid atau sesi berakhir'
+    ]);
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Ambil data input
     $id_toko = $_POST['id_toko'] ?? null;
-    $id_paket = $_POST['id_paket'] ?? null; // ID paket langganan yang dipilih
+    $id_paket = $_POST['id_paket'] ?? null;
 
     // Validasi input
     if (empty($id_toko) || empty($id_paket)) {
@@ -23,22 +35,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Mulai transaksi
         $pdo->beginTransaction();
 
-        // Cek apakah toko sudah memiliki langganan aktif
-        $queryCheck = "SELECT id FROM langganantoko WHERE id_toko = ? AND tanggal_berakhir > NOW()";
+        // Periksa apakah toko sudah memiliki langganan aktif
+        $queryCheck = "SELECT id FROM langganantoko WHERE id_toko = ? AND id_langganan = ? AND tanggal_berakhir > CURDATE()";
         $stmtCheck = $pdo->prepare($queryCheck);
-        $stmtCheck->execute([$id_toko]);
+        $stmtCheck->execute([$id_toko, $id_paket]);
 
         if ($stmtCheck->rowCount() > 0) {
             echo json_encode([
                 'success' => false,
-                'error' => 'Toko sudah memiliki langganan aktif'
+                'error' => 'Toko sudah memiliki langganan aktif untuk paket ini'
             ]);
             $pdo->rollBack();
             exit;
         }
 
-        // Ambil informasi paket dari tabel PaketLangganan
-        $queryPaket = "SELECT durasi, harga FROM paketlangganan WHERE id = ? LIMIT 1";
+        // Ambil informasi paket berdasarkan ID paket
+        $queryPaket = "SELECT nama, durasi, harga FROM paketlangganan WHERE id = ? LIMIT 1";
         $stmtPaket = $pdo->prepare($queryPaket);
         $stmtPaket->execute([$id_paket]);
 
@@ -52,12 +64,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $paket = $stmtPaket->fetch(PDO::FETCH_ASSOC);
-        $durasi = $paket['durasi'];
-        $biaya = $paket['harga'];
+        $nama_paket = $paket['nama'];
+        $durasi = (int)$paket['durasi']; // Pastikan durasi adalah integer
+        
+        // Pastikan paket yang dipilih adalah "premium"
+        if (strtolower($nama_paket) !== 'premium') {
+            echo json_encode([
+                'success' => false,
+                'error' => 'Paket yang dipilih bukan premium, silakan pilih paket premium'
+            ]);
+            $pdo->rollBack();
+            exit;
+        }
+        
+        // Validasi durasi sebelum digunakan
+        if ($durasi <= 0) {
+            echo json_encode([
+                'success' => false,
+                'error' => 'Durasi paket tidak valid'
+            ]);
+            $pdo->rollBack();
+            exit;
+        }
+        
 
-        // Hitung tanggal mulai dan tanggal berakhir berdasarkan durasi paket
-        $tanggal_mulai = date('Y-m-d H:i:s');
-        $tanggal_berakhir = date('Y-m-d H:i:s', strtotime("+$durasi months"));
+        // Hitung tanggal mulai dan tanggal berakhir
+        $tanggal_mulai = date('Y-m-d');
+
+        // Gunakan DateTime untuk perhitungan tanggal yang lebih akurat
+        $datetime = new DateTime($tanggal_mulai);
+        $datetime->modify("+{$durasi} months");
+        $tanggal_berakhir = $datetime->format('Y-m-d');
 
         // Masukkan langganan ke database
         $queryInsert = "
@@ -71,13 +108,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         echo json_encode([
             'success' => true,
-            'message' => 'Upgrade ke premium berhasil',
+            'message' => 'Upgrade ke ' . ucfirst($nama_paket) . ' berhasil',
             'data' => [
                 'id_toko' => $id_toko,
                 'id_paket' => $id_paket,
+                'paket_nama' => $nama_paket,
                 'tanggal_mulai' => $tanggal_mulai,
                 'tanggal_berakhir' => $tanggal_berakhir,
-                'biaya' => $biaya
             ]
         ]);
     } catch (PDOException $e) {

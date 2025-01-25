@@ -115,6 +115,9 @@ switch (true) {
         break;
 
     // Toko
+    case preg_match('/^\/toko\/atur_akun$/', $path):
+        include('./toko/atur_akun.php');
+        break;
     case preg_match('/^\/toko\/kelola_toko$/', $path):
         include('./toko/kelola_toko.php');
         break;

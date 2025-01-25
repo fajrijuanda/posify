@@ -1,10 +1,28 @@
 <?php
+
 header('Content-Type: application/json');
-include("../config/dbconnection.php"); // Sesuaikan path jika diperlukan
-include('../middlewares/auth_middleware.php'); // Middleware untuk validasi token
+include('../config/cors.php');
+include("../config/dbconnection.php");
+include('../middlewares/auth_middleware.php');
+include('../config/helpers.php');
+
+// Load .env jika menggunakan PHP dotenv
+$dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/../');
+$dotenv->load();
+$baseURL = $_ENV['APP_URL'] ?? 'http://posify.test';
 
 // Validasi token untuk otentikasi
-$user_id = validateToken($pdo); // Mendapatkan user_id dari token jika valid
+$authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+$authResult = validateToken($authHeader);
+if (isset($authResult['error'])) {
+    http_response_code(401);
+    echo json_encode($authResult);
+    exit;
+}
+
+// Ambil user_id jika valid
+$user_id = $authResult;
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Ambil data input
     $id_user = $_POST['id_user'] ?? null;

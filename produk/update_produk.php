@@ -1,15 +1,39 @@
 <?php
 header('Content-Type: application/json');
-include('../config/dbconnection.php'); // Pastikan path sesuai
-include('../config/cors.php'); // Include konfigurasi CORS
-include('../middlewares/auth_middleware.php'); // Middleware untuk validasi token
+include('../config/cors.php');
+include("../config/dbconnection.php");
+include('../middlewares/auth_middleware.php'); 
+include('../config/helpers.php');  
+
+// Load .env jika menggunakan PHP dotenv
+$dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/../');
+$dotenv->load();
+$baseURL = $_ENV['APP_URL'] ?? 'http://posify.test';
 
 // Validasi token untuk otentikasi
-$user_id = validateToken($pdo); // Mendapatkan user_id dari token jika valid
-if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
-    parse_str(file_get_contents('php://input'), $data); // Mendapatkan data dari body request
+$authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+$authResult = validateToken($authHeader);
+if (isset($authResult['error'])) {
+    http_response_code(401);
+    echo json_encode($authResult);
+    exit;
+}
 
-    $id_produk = $data['id_produk'] ?? null;
+// Ambil user_id jika valid
+$user_id = $authResult;
+
+if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
+    $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+
+if (stripos($contentType, 'application/json') !== false) {
+    $data = json_decode(file_get_contents('php://input'), true);
+} else {
+    parse_str(file_get_contents('php://input'), $data);
+}
+
+
+    // Ambil id_produk dari query parameter jika tidak ada di body request
+    $id_produk = $_GET['id_produk'] ?? ($data['id_produk'] ?? null);
     $nama_produk = $data['nama_produk'] ?? null;
     $harga_modal = $data['harga_modal'] ?? null;
     $harga_jual = $data['harga_jual'] ?? null;
@@ -61,4 +85,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
         'error' => 'Invalid request method'
     ]);
 }
+
 ?>
