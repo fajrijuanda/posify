@@ -11,27 +11,47 @@ $dotenv->load();
 $baseURL = $_ENV['APP_URL'] ?? 'http://posify.test';
 
 // Validasi token untuk otentikasi
-$authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-$authResult = validateToken($authHeader);
-if (isset($authResult['error'])) {
+$authResult = validateToken(); // Tidak perlu parameter
+if (!is_array($authResult) || !isset($authResult['user_id'], $authResult['id_toko'])) {
     http_response_code(401);
-    echo json_encode($authResult);
+    echo json_encode(['success' => false, 'error' => 'Token tidak valid atau sudah expired']);
     exit;
 }
 
-// Ambil user_id jika valid
-$user_id = $authResult; // Ambil user_id dari hasil validasi token
+// Ambil user_id & id_toko dari token JWT
+$user_id = $authResult['user_id'];
+$id_toko = $authResult['id_toko'];
 
-// Validasi token untuk otentikasi
-$user_id = validateToken($pdo); // Mendapatkan user_id dari token jika valid
+// Debugging: Pastikan id_toko ada sebelum query
+error_log("User ID: " . $user_id);
+error_log("ID Toko: " . $id_toko);
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $id_toko = $_POST['id_toko'] ?? null;
-    $metode_pembayaran = $_POST['metode_pembayaran'] ?? null; // Misal: 'tunai', 'kartu'
-    $simpan_pesanan = $_POST['simpan_pesanan'] ?? null; // Boolean: true/false
-    $refund_kasir = $_POST['refund_kasir'] ?? null; // Boolean: true/false
-    $tampilkan_logo = $_POST['tampilkan_logo'] ?? null; // Boolean: true/false
-    $tampilkan_alamat = $_POST['tampilkan_alamat'] ?? null; // Boolean: true/false
-
+    // Tangani input form-data
+    $nama_toko = $_POST['nama_toko'] ?? null;
+    $nomor_telepon = $_POST['nomor_telepon'] ?? null;
+    $nomor_rekening = $_POST['nomor_rekening'] ?? null;
+    $alamat = $_POST['alamat'] ?? null;
+    
+    // Tangani unggah gambar logo
+    $uploadDir = __DIR__ . '/../uploads/toko/';
+    $logo = null;
+    if (!empty($_FILES['logo']['name'])) {
+        $fileName = time() . '_' . basename($_FILES['logo']['name']);
+        $targetFilePath = $uploadDir . $fileName;
+        
+        if (!is_dir($uploadDir)) {
+            mkdir($uploadDir, 0777, true);
+        }
+        
+        if (move_uploaded_file($_FILES['logo']['tmp_name'], $targetFilePath)) {
+            $logo = 'uploads/toko/' . $fileName;
+        } else {
+            echo json_encode(['success' => false, 'error' => 'Gagal mengupload logo']);
+            exit;
+        }
+    }
+    
     if (empty($id_toko)) {
         echo json_encode([
             'success' => false,
@@ -41,24 +61,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     try {
-        // Simpan konfigurasi toko
-        $query = "
-            UPDATE toko 
-            SET metode_pembayaran = ?, simpan_pesanan = ?, refund_kasir = ?, tampilkan_logo = ?, tampilkan_alamat = ?
-            WHERE id = ?";
+        // Simpan perubahan toko
+        $query = "UPDATE toko SET nama_toko = ?, nomor_telepon = ?, nomor_rekening = ?, alamat = ?, logo = ? WHERE id = ?";
         $stmt = $pdo->prepare($query);
         $stmt->execute([
-            $metode_pembayaran,
-            $simpan_pesanan,
-            $refund_kasir,
-            $tampilkan_logo,
-            $tampilkan_alamat,
+            $nama_toko,
+            $nomor_telepon,
+            $nomor_rekening,
+            $alamat,
+            $logo,
             $id_toko
         ]);
 
         echo json_encode([
             'success' => true,
-            'message' => 'Pengaturan toko berhasil diperbarui'
+            'message' => 'Pengaturan toko berhasil diperbarui',
+            'data' => [
+                'id' => $id_toko,
+                'nama_toko' => $nama_toko,
+                'nomor_telepon' => $nomor_telepon,
+                'nomor_rekening' => $nomor_rekening,
+                'alamat' => $alamat,
+                'logo' => $logo ? $baseURL . '/' . $logo : null
+            ]
         ]);
     } catch (PDOException $e) {
         echo json_encode([
@@ -67,27 +92,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ]);
     }
 } elseif ($_SERVER['REQUEST_METHOD'] === 'GET') {
-    $id_toko = $_GET['id_toko'] ?? null;
-
-    if (empty($id_toko)) {
-        echo json_encode([
-            'success' => false,
-            'error' => 'ID Toko diperlukan'
-        ]);
-        exit;
-    }
-
     try {
-        // Ambil konfigurasi toko
-        $query = "SELECT metode_pembayaran, simpan_pesanan, refund_kasir, tampilkan_logo, tampilkan_alamat FROM toko WHERE id = ?";
+        // Ambil konfigurasi toko beserta email dari tabel users
+        $query = "SELECT t.id, t.nama_toko, t.nomor_telepon, t.nomor_rekening, t.alamat, t.logo, u.email 
+                  FROM toko t 
+                  JOIN users u ON t.id_user = u.id 
+                  WHERE t.id = ?";
         $stmt = $pdo->prepare($query);
         $stmt->execute([$id_toko]);
         $config = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        echo json_encode([
-            'success' => true,
-            'data' => $config
-        ]);
+        if ($config) {
+            // Tambahkan URL gambar logo
+            $config['logo_url'] = !empty($config['logo']) ? $baseURL . '/' . $config['logo'] : null;
+
+            // Format ulang respons agar email berada di dalam id_user
+            $formattedResponse = [
+                'success' => true,
+                'data' => [
+                    'id' => $config['id'],
+                    'nama_toko' => $config['nama_toko'],
+                    'nomor_telepon' => $config['nomor_telepon'],
+                    'nomor_rekening' => $config['nomor_rekening'],
+                    'alamat' => $config['alamat'],
+                    'logo' => $config['logo'],
+                    'logo_url' => $config['logo_url'],
+                    'email' => $config['email']
+        
+                ]
+            ];
+        }
+
+        echo json_encode($formattedResponse);
     } catch (PDOException $e) {
         echo json_encode([
             'success' => false,

@@ -4,10 +4,21 @@ include("../config/dbconnection.php"); // Sesuaikan path jika diperlukan
 include('../config/cors.php');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Ambil data input dari user
-    $nama_toko = $_POST['nama_toko'] ?? null;
-    $email = $_POST['email'] ?? null;
-    $password = $_POST['password'] ?? null;
+    // Ambil JSON input dari user
+    $jsonInput = file_get_contents('php://input');
+    $data = json_decode($jsonInput, true);
+    
+    if (!is_array($data)) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Invalid JSON format'
+        ]);
+        exit;
+    }
+    
+    $nama_toko = $data['nama_toko'] ?? null;
+    $email = $data['email'] ?? null;
+    $password = $data['password'] ?? null;
 
     // Validasi input
     if (empty($nama_toko) || empty($email) || empty($password)) {
@@ -47,9 +58,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id_user = $pdo->lastInsertId();
 
         // Insert data ke tabel Toko
-       $queryToko = "INSERT INTO toko (id_user, nama_toko, nomor_telepon, alamat, nomor_rekening, logo) 
-              VALUES (?, ?, NULL, NULL, NULL, NULL)";
-
+        $queryToko = "INSERT INTO toko (id_user, nama_toko, nomor_telepon, alamat, nomor_rekening, logo) 
+                      VALUES (?, ?, NULL, NULL, NULL, NULL)";
         $stmtToko = $pdo->prepare($queryToko);
         $stmtToko->execute([$id_user, $nama_toko]);
 
@@ -63,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($stmtPaket->rowCount() > 0) {
             $paket = $stmtPaket->fetch(PDO::FETCH_ASSOC);
-
+            
             // Hitung tanggal mulai dan tanggal berakhir berdasarkan durasi paket
             $tanggal_mulai = date('Y-m-d H:i:s');
             $tanggal_berakhir = date('Y-m-d H:i:s', strtotime("+{$paket['durasi']} months"));

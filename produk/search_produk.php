@@ -1,4 +1,5 @@
 <?php
+
 header('Content-Type: application/json');
 include('../config/cors.php');
 include("../config/dbconnection.php");
@@ -26,16 +27,42 @@ $id_toko = $authResult['id_toko'];
 error_log("User ID: " . $user_id);
 error_log("ID Toko: " . $id_toko);
 
-if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+// Ambil input JSON
+$jsonInput = file_get_contents('php://input');
+$data = json_decode($jsonInput, true);
+$nama_produk = $data['nama_produk'] ?? '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
-        // Ambil semua produk berdasarkan ID Toko
+        // Query untuk mendapatkan produk berdasarkan ID Toko dan optional nama produk (pencarian fleksibel)
         $query = "
             SELECT id, nama_produk, harga_modal, harga_jual, stok, deskripsi, gambar
             FROM produk
             WHERE id_toko = ?";
+
+        if (!empty($nama_produk)) {
+            $query .= " AND nama_produk LIKE ?";
+        }
+
         $stmt = $pdo->prepare($query);
-        $stmt->execute([$id_toko]);
+
+        if (!empty($nama_produk)) {
+            $stmt->execute([$id_toko, "%$nama_produk%"]); // Mencari produk yang mengandung karakter inputan
+        } else {
+            $stmt->execute([$id_toko]);
+        }
+
         $produk = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Jika tidak ada data ditemukan
+        if (empty($produk)) {
+            echo json_encode([
+                'success' => true,
+                'message' => 'Produk tidak ditemukan',
+                'data' => []
+            ]);
+            exit;
+        }
 
         // Tambahkan URL lengkap ke gambar produk
         foreach ($produk as &$item) {

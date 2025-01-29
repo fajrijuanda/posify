@@ -16,18 +16,22 @@ if (!$secretKey) {
     exit;
 }
 
-function validateToken($authHeader) {
-    global $secretKey;
+function validateToken() {
+    global $secretKey, $pdo; // Tambahkan $pdo untuk database
 
-    if (!$authHeader || !is_string($authHeader)) {
-        return ["error" => "Token not provided or invalid type"];
+    // Ambil header Authorization
+    $headers = apache_request_headers();
+    $authHeader = $headers['Authorization'] ?? '';
+
+    if (!$authHeader) {
+        return null;
     }
 
     // Validasi format "Bearer {token}"
     $tokenParts = explode(' ', trim($authHeader));
 
     if (count($tokenParts) !== 2 || strtolower($tokenParts[0]) !== 'bearer') {
-        return ["error" => "Invalid token format"];
+        return null;
     }
 
     $jwtToken = $tokenParts[1];
@@ -35,16 +39,39 @@ function validateToken($authHeader) {
     try {
         $decoded = JWT::decode($jwtToken, new Key($secretKey, 'HS256'));
 
+        // Pastikan token memiliki user_id dan id_toko
         if (!isset($decoded->user_id)) {
-            return ["error" => "Invalid token payload"];
+            return null;
         }
 
-        return $decoded->user_id;
+        // **Periksa apakah token masih valid di database**
+        $stmt = $pdo->prepare("SELECT * FROM sessions WHERE token = ? AND expired_at > NOW()");
+        $stmt->execute([$jwtToken]);
+        $session = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$session) {
+            // **Jika token expired, hapus dari database**
+            $deleteStmt = $pdo->prepare("DELETE FROM sessions WHERE token = ?");
+            $deleteStmt->execute([$jwtToken]);
+
+            http_response_code(401);
+            echo json_encode(["success" => false, "error" => "Token expired, please login again"]);
+            exit;
+        }
+
+        return [
+            'user_id' => $decoded->user_id,
+            'id_toko' => $decoded->id_toko ?? null // Bisa null jika tidak ada
+        ];
     } catch (\Firebase\JWT\ExpiredException $e) {
-        return ["error" => "Token has expired"];
-    } catch (\Firebase\JWT\SignatureInvalidException $e) {
-        return ["error" => "Invalid token signature"];
-    } catch (Exception $e) {
-        return ["error" => "Token verification failed: " . $e->getMessage()];
+        // **Jika token expired, hapus dari database**
+        $deleteStmt = $pdo->prepare("DELETE FROM sessions WHERE token = ?");
+        $deleteStmt->execute([$jwtToken]);
+
+        http_response_code(401);
+        echo json_encode(["success" => false, "error" => "Token expired, please login again"]);
+        exit;
+    } catch (\Exception $e) {
+        return null;
     }
 }

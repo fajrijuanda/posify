@@ -103,6 +103,8 @@ switch (true) {
     // Produk
     case preg_match('/^\/produk\/insert_produk$/', $path):
         include('./produk/insert_produk.php');
+    case preg_match('/^\/produk\/search_produk$/', $path):
+        include('./produk/search_produk.php');
         break;
     case preg_match('/^\/produk\/update_produk$/', $path):
         include('./produk/update_produk.php');
