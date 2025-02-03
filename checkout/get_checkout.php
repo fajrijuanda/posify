@@ -5,74 +5,72 @@ include('../config/cors.php');
 include('../middlewares/auth_middleware.php'); // Middleware untuk validasi token
 
 // Validasi token untuk otentikasi
-$user_id = validateToken($pdo); // Mendapatkan user_id dari token jika valid
-if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-    $id_toko = $_GET['id_toko'] ?? null;
+$userData = validateToken();
+if (!$userData) {
+    echo json_encode(['success' => false, 'error' => 'Token tidak valid atau sudah expired']);
+    exit;
+}
 
-    if (empty($id_toko)) {
+$user_id = $userData['user_id'];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Ambil input JSON
+    $inputJSON = file_get_contents("php://input");
+    $input = json_decode($inputJSON, true);
+
+    if (!is_array($input)) {
         echo json_encode([
             'success' => false,
-            'error' => 'ID Toko diperlukan'
+            'error' => 'Invalid JSON format'
+        ]);
+        exit;
+    }
+
+    // Ambil `id_pelanggan` dari input JSON
+    $id_pelanggan = $input['id_pelanggan'] ?? null;
+
+    if (empty($id_pelanggan)) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'ID Pelanggan diperlukan'
         ]);
         exit;
     }
 
     try {
-        // Ambil semua produk di keranjang berdasarkan toko
+        // Ambil data checkout yang sudah berstatus 'checkout' berdasarkan id_pelanggan
         $query = "
             SELECT 
-                k.id AS id_keranjang, 
-                p.nama_produk, 
-                k.jumlah, 
-                p.harga AS harga_produk, 
-                p.gambar, 
-                (k.jumlah * p.harga) AS total_harga_produk
-            FROM keranjang k
-            JOIN produk p ON k.id_produk = p.id
-            WHERE k.id_toko = ?";
-        $stmt = $pdo->prepare($query);
-        $stmt->execute([$id_toko]);
-        $keranjang = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                c.id AS id_checkout,
+                c.id_keranjang,
+                c.subtotal,
+                c.total_harga,
+                c.metode_pengiriman,
+                c.status,
+                v.nama AS nama_voucher,
+                p.nama_pelanggan
+            FROM checkout c
+            LEFT JOIN voucher v ON c.id_voucher = v.id
+            LEFT JOIN pelanggan p ON c.id_pelanggan = p.id
+            WHERE c.id_pelanggan = ? AND c.status = 'checkout'
+            ORDER BY c.id DESC";
 
-        // Cek apakah keranjang kosong
-        if (empty($keranjang)) {
+        $stmt = $pdo->prepare($query);
+        $stmt->execute([$id_pelanggan]);
+        $checkouts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (empty($checkouts)) {
             echo json_encode([
                 'success' => false,
-                'error' => 'Keranjang kosong untuk toko ini'
+                'error' => 'Tidak ada data checkout yang sudah diproses untuk pelanggan ini'
             ]);
             exit;
         }
 
-        // Hitung subtotal
-        $subtotalQuery = "
-            SELECT 
-                SUM(k.jumlah * p.harga) AS subtotal
-            FROM keranjang k
-            JOIN produk p ON k.id_produk = p.id
-            WHERE k.id_toko = ?";
-        $stmtSubtotal = $pdo->prepare($subtotalQuery);
-        $stmtSubtotal->execute([$id_toko]);
-        $subtotal = $stmtSubtotal->fetchColumn();
-
-        // Cek apakah ada data checkout sementara
-        $queryCheckout = "
-            SELECT 
-                id AS id_checkout, 
-                subtotal, 
-                total_harga, 
-                metode_pengiriman, 
-                id_voucher
-            FROM checkout 
-            WHERE id_keranjang = ? AND status = 'sementara'";
-        $stmtCheckout = $pdo->prepare($queryCheckout);
-        $stmtCheckout->execute([$keranjang[0]['id_keranjang']]);
-        $checkout = $stmtCheckout->fetch(PDO::FETCH_ASSOC);
-
         echo json_encode([
             'success' => true,
-            'keranjang' => $keranjang,
-            'subtotal' => $subtotal,
-            'checkout' => $checkout // Jika tidak ada data, akan bernilai null
+            'total_checkout' => count($checkouts),
+            'data' => $checkouts
         ]);
     } catch (PDOException $e) {
         echo json_encode([

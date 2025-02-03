@@ -1,11 +1,12 @@
 <?php
+
 header('Content-Type: application/json');
 include('../config/cors.php');
 include("../config/dbconnection.php");
 include('../middlewares/auth_middleware.php'); // Middleware untuk validasi token
 
 // Validasi token untuk otentikasi
-$userData = validateToken(); // Dapatkan data user dari token
+$userData = validateToken();
 
 if (!$userData) {
     echo json_encode(['success' => false, 'error' => 'Token tidak valid atau sudah expired']);
@@ -27,13 +28,32 @@ if (!$id_toko) {
     exit;
 }
 
-// SHOW ALL PELANGGAN BERDASARKAN ID TOKO
-if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+// SHOW ALL PELANGGAN BERDASARKAN ID TOKO & FILTER NAMA DENGAN JSON
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Ambil input JSON
+    $inputJSON = file_get_contents("php://input");
+    $input = json_decode($inputJSON, true);
+
+    if (!is_array($input)) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Invalid JSON format'
+        ]);
+        exit;
+    }
+
+    // Ambil kata kunci pencarian
+    $search = $input['nama_pelanggan'] ?? '';
+
     try {
-        // Query yang benar dengan filter berdasarkan id_toko
-        $query = "SELECT id, id_toko, nomor_telepon, nama_pelanggan FROM pelanggan WHERE id_toko = ?";
+        // Query dengan pencarian fleksibel
+        $query = "SELECT id, id_toko, nomor_telepon, nama_pelanggan 
+                  FROM pelanggan 
+                  WHERE id_toko = ? AND nama_pelanggan LIKE ?";
+
         $stmt = $pdo->prepare($query);
-        $stmt->execute([$id_toko]); // Menggunakan id_toko dari token
+        $stmt->execute([$id_toko, "%$search%"]); // Mencari nama yang mengandung kata kunci
+
         $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         echo json_encode([

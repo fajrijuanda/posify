@@ -1,11 +1,23 @@
 <?php
-header('Content-Type: application/json');
-include("../config/dbconnection.php");
-include('../config/cors.php');
-include('../middlewares/auth_middleware.php'); // Middleware untuk validasi token
 
-// Validasi token untuk otentikasi
-$user_id = validateToken($pdo); // Mendapatkan user_id dari token jika valid
+header('Content-Type: application/json');
+include('../config/cors.php');
+include("../config/dbconnection.php");
+include('../middlewares/auth_middleware.php');
+
+$dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/../');
+$dotenv->load();
+$baseURL = $_ENV['APP_URL'] ?? 'http://posify.test';
+
+$userData = validateToken();
+
+if (!$userData) {
+    echo json_encode(['success' => false, 'error' => 'Token tidak valid atau sudah expired']);
+    exit;
+}
+
+$id_toko = $userData['id_toko']; // Ambil id_toko dari token JWT
+
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $id_transaksi = $_GET['id_transaksi'] ?? null;
 

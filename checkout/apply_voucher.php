@@ -1,4 +1,5 @@
 <?php
+
 header('Content-Type: application/json');
 include("../config/dbconnection.php");
 include('../config/cors.php');

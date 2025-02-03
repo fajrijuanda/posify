@@ -1,7 +1,7 @@
 <?php
 header('Content-Type: application/json');
 // Autoloader Composer
-require_once __DIR__ . '/vendor/autoload.php'; 
+require_once __DIR__ . '/vendor/autoload.php';
 
 $dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
 $dotenv->load();
@@ -58,6 +58,9 @@ switch (true) {
     case preg_match('/^\/checkout\/delete_checkout$/', $path):
         include('./checkout/delete_checkout.php');
         break;
+    case preg_match('/^\/checkout\/save_checkout$/', $path):
+        include('./checkout/save_checkout.php');
+        break;
 
     // Dashboard
     case preg_match('/^\/dashboard\/detail_produk$/', $path):
@@ -70,6 +73,15 @@ switch (true) {
     // Kasir
     case preg_match('/^\/kasir\/add_to_cart$/', $path):
         include('./kasir/add_to_cart.php');
+        break;
+    case preg_match('/^\/kasir\/delete_to_cart$/', $path):
+        include('./kasir/delete_to_cart.php');
+        break;
+    case preg_match('/^\/kasir\/delete_produk$/', $path):
+        include('./kasir/delete_produk.php');
+        break;
+    case preg_match('/^\/kasir\/delete_keranjang$/', $path):
+        include('./kasir/delete_keranjang.php');
         break;
     case preg_match('/^\/kasir\/get_cart$/', $path):
         include('./kasir/get_cart.php');
@@ -95,6 +107,9 @@ switch (true) {
         break;
     case preg_match('/^\/pelanggan\/get_pelanggan$/', $path):
         include('./pelanggan/get_pelanggan.php');
+        break;
+    case preg_match('/^\/pelanggan\/get_pelanggan_name$/', $path):
+        include('./pelanggan/get_pelanggan_name.php');
         break;
     case preg_match('/^\/pelanggan\/update_pelanggan$/', $path):
         include('./pelanggan/update_pelanggan.php');
@@ -144,6 +159,9 @@ switch (true) {
         break;
     case preg_match('/^\/voucher\/get_voucher$/', $path):
         include('./voucher/get_voucher.php');
+        break;
+    case preg_match('/^\/voucher\/vocher_name$/', $path):
+        include('./voucher/vocher_name.php');
         break;
 
     default:

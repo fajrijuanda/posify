@@ -4,7 +4,19 @@ include("../config/dbconnection.php"); // Sesuaikan path jika diperlukan
 include('../config/cors.php');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = $_POST['email'] ?? null;
+    // Ambil JSON input dari user
+    $jsonInput = file_get_contents('php://input');
+    $data = json_decode($jsonInput, true);
+
+    if (!is_array($data)) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Invalid JSON format.'
+        ]);
+        exit;
+    }
+
+    $email = $data['email'] ?? null;
 
     // Validasi input
     if (empty($email)) {

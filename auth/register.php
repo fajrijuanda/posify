@@ -92,6 +92,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
+        // Insert id_toko ke tabel keranjang
+        $queryKeranjang = "INSERT INTO keranjang (id_toko, total_produk) VALUES (?, 0)";
+        $stmtKeranjang = $pdo->prepare($queryKeranjang);
+        $stmtKeranjang->execute([$id_toko]);
+
         // Commit transaksi
         $pdo->commit();
 

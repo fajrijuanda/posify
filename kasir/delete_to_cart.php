@@ -4,7 +4,7 @@ include('../config/cors.php');
 include("../config/dbconnection.php");
 include('../middlewares/auth_middleware.php'); // Middleware untuk validasi token
 
-// Validasi token untuk otentikasi
+// Validasi token JWT
 $userData = validateToken();
 
 if (!$userData) {
@@ -27,17 +27,17 @@ if (!$id_toko) {
     exit;
 }
 
-// METHOD POST: Menambahkan produk ke keranjang
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $input = json_decode(file_get_contents("php://input"), true); // Ambil input JSON
+// METHOD DELETE: Menghapus atau mengurangi jumlah produk dalam keranjang
+if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
+    $input = json_decode(file_get_contents("php://input"), true);
 
     $id_produk = $input['id_produk'] ?? null;
-    $jumlah = $input['jumlah'] ?? 1; // Default jumlah 1 jika tidak diinputkan
+    $jumlah = $input['jumlah'] ?? 1; // Default pengurangan 1 jika tidak diinputkan
 
-    if (empty($id_produk) || empty($id_toko)) {
+    if (empty($id_produk)) {
         echo json_encode([
             'success' => false,
-            'error' => 'ID Produk dan ID Toko diperlukan'
+            'error' => 'ID Produk diperlukan'
         ]);
         exit;
     }
@@ -52,53 +52,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $resultKeranjang = $stmtKeranjang->fetch(PDO::FETCH_ASSOC);
 
         if (!$resultKeranjang) {
-            // Jika belum ada `keranjang` untuk `id_toko`, buat dulu
-            $queryInsertKeranjang = "INSERT INTO keranjang (id_toko) VALUES (?)";
-            $stmtInsertKeranjang = $pdo->prepare($queryInsertKeranjang);
-            $stmtInsertKeranjang->execute([$id_toko]);
-
-            $id_keranjang = $pdo->lastInsertId(); // Ambil ID keranjang yang baru
-        } else {
-            $id_keranjang = $resultKeranjang['id'];
-        }
-
-        // Ambil harga produk dari `produk`
-        $queryHarga = "SELECT harga_jual FROM produk WHERE id = ?";
-        $stmtHarga = $pdo->prepare($queryHarga);
-        $stmtHarga->execute([$id_produk]);
-        $resultHarga = $stmtHarga->fetch(PDO::FETCH_ASSOC);
-
-        if (!$resultHarga) {
             echo json_encode([
                 'success' => false,
-                'error' => 'Produk tidak ditemukan dalam database'
+                'error' => 'Keranjang tidak ditemukan untuk toko ini'
             ]);
-            $pdo->rollBack();
             exit;
         }
 
-        $harga_produk = $resultHarga['harga_jual'];
+        $id_keranjang = $resultKeranjang['id'];
 
-        // Cek apakah produk sudah ada di `produkkeranjang`
+        // Cek apakah produk ada di `produkkeranjang`
         $queryCheck = "SELECT id, kuantitas FROM produkkeranjang WHERE id_keranjang = ? AND id_produk = ?";
         $stmtCheck = $pdo->prepare($queryCheck);
         $stmtCheck->execute([$id_keranjang, $id_produk]);
         $resultCheck = $stmtCheck->fetch(PDO::FETCH_ASSOC);
 
-        if ($resultCheck) {
-            // Jika produk sudah ada, update kuantitasnya
-            $newQuantity = $resultCheck['kuantitas'] + $jumlah;
+        if (!$resultCheck) {
+            echo json_encode([
+                'success' => false,
+                'error' => 'Produk tidak ditemukan dalam keranjang'
+            ]);
+            exit;
+        }
+
+        $currentQuantity = $resultCheck['kuantitas'];
+        $newQuantity = max(0, $currentQuantity - $jumlah);
+
+        if ($newQuantity > 0) {
+            // Jika kuantitas masih lebih dari 0, update jumlah produk
             $queryUpdate = "UPDATE produkkeranjang SET kuantitas = ? WHERE id = ?";
             $stmtUpdate = $pdo->prepare($queryUpdate);
             $stmtUpdate->execute([$newQuantity, $resultCheck['id']]);
         } else {
-            // Jika produk belum ada, tambahkan ke `produkkeranjang`
-            $queryInsert = "INSERT INTO produkkeranjang (id_keranjang, id_produk, kuantitas, harga_produk) VALUES (?, ?, ?, ?)";
-            $stmtInsert = $pdo->prepare($queryInsert);
-            $stmtInsert->execute([$id_keranjang, $id_produk, $jumlah, $harga_produk]);
+            // Jika kuantitas sudah 0, hapus produk dari keranjang
+            $queryDelete = "DELETE FROM produkkeranjang WHERE id = ?";
+            $stmtDelete = $pdo->prepare($queryDelete);
+            $stmtDelete->execute([$resultCheck['id']]);
+
+            // Update total_produk di `keranjang` karena ada produk yang dihapus
+            $queryUpdateTotal = "UPDATE keranjang SET total_produk = total_produk - 1 WHERE id = ?";
+            $stmtUpdateTotal = $pdo->prepare($queryUpdateTotal);
+            $stmtUpdateTotal->execute([$id_keranjang]);
         }
 
-        // **Hitung total produk dalam keranjang berdasarkan id_keranjang**
+        // **Hitung ulang total produk dalam keranjang berdasarkan id_keranjang**
         $queryTotalProduk = "SELECT SUM(kuantitas) AS total_produk FROM produkkeranjang WHERE id_keranjang = ?";
         $stmtTotalProduk = $pdo->prepare($queryTotalProduk);
         $stmtTotalProduk->execute([$id_keranjang]);
@@ -106,17 +103,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $total_produk = $resultTotalProduk['total_produk'] ?? 0;
 
         // **Update total produk di tabel `keranjang`**
-        $queryUpdateTotal = "UPDATE keranjang SET total_produk = ? WHERE id = ?";
-        $stmtUpdateTotal = $pdo->prepare($queryUpdateTotal);
-        $stmtUpdateTotal->execute([$total_produk, $id_keranjang]);
+        $queryUpdateKeranjang = "UPDATE keranjang SET total_produk = ? WHERE id = ?";
+        $stmtUpdateKeranjang = $pdo->prepare($queryUpdateKeranjang);
+        $stmtUpdateKeranjang->execute([$total_produk, $id_keranjang]);
 
-        // Commit transaksi
         $pdo->commit();
 
         echo json_encode([
             'success' => true,
-            'message' => 'Produk berhasil ditambahkan ke keranjang',
-            'total_produk' => $total_produk
+            'message' => $newQuantity > 0 ? 'Jumlah produk dalam keranjang dikurangi' : 'Produk dihapus dari keranjang',
         ]);
     } catch (PDOException $e) {
         $pdo->rollBack();
@@ -125,5 +120,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'error' => 'Database error: ' . $e->getMessage()
         ]);
     }
+} else {
+    echo json_encode([
+        'success' => false,
+        'error' => 'Invalid request method'
+    ]);
 }
 ?>

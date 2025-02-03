@@ -1,44 +1,127 @@
 <?php
+
 header('Content-Type: application/json');
-require_once '../config/dbconnection.php';
 include('../config/cors.php');
-include('../middlewares/auth_middleware.php'); // Middleware untuk validasi token
+include("../config/dbconnection.php");
+include('../middlewares/auth_middleware.php');
 
-// Validasi token untuk otentikasi
-$user_id = validateToken($pdo); // Mendapatkan user_id dari token jika valid
+$dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/../');
+$dotenv->load();
+$baseURL = $_ENV['APP_URL'] ?? 'http://posify.test';
+
+$userData = validateToken();
+
+if (!$userData) {
+    echo json_encode(['success' => false, 'error' => 'Token tidak valid atau sudah expired']);
+    exit;
+}
+
+$id_toko = $userData['id_toko']; // Ambil id_toko dari token JWT
+
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-    $id_toko = $_GET['id_toko'] ?? null;
-    $start_date = $_GET['start_date'] ?? null;
-    $end_date = $_GET['end_date'] ?? null;
-
-    if (empty($id_toko) || empty($start_date) || empty($end_date)) {
-        echo json_encode([
-            'success' => false,
-            'error' => 'ID Toko, Start Date, dan End Date diperlukan'
-        ]);
-        exit;
-    }
-
     try {
+        // **Menampilkan Semua Data Laporan Keuangan**
         $query = "
-            SELECT l.omset_penjualan, l.biaya_komisi, l.total_diskon, l.total_bersih, t.nomor_order, t.waktu_transaksi
-            FROM laporan_keuangan l
-            JOIN transaksilaporan tl ON l.id = tl.id_laporan
+            SELECT 
+                lk.id AS id_laporan,
+                lk.id_toko,
+                lk.omset_penjualan,
+                lk.biaya_komisi,
+                lk.total_bersih,
+                DATE_FORMAT(t.waktu_transaksi, '%d-%m-%Y %H:%i:%s') AS waktu_transaksi
+            FROM laporankeuangan lk
+            JOIN transaksilaporan tl ON lk.id = tl.id_laporan
             JOIN transaksi t ON tl.id_transaksi = t.id
-            WHERE l.id_toko = ? AND t.waktu_transaksi BETWEEN ? AND ?";
-        $stmt = $pdo->prepare($query);
-        $stmt->execute([$id_toko, $start_date, $end_date]);
+            WHERE lk.id_toko = ?
+            ORDER BY t.waktu_transaksi DESC
+        ";
 
-        $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $stmt = $pdo->prepare($query);
+        $stmt->execute([$id_toko]);
+        $laporanKeuangan = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         echo json_encode([
             'success' => true,
-            'data' => $result
+            'message' => 'Data laporan keuangan berhasil diambil',
+            'data' => $laporanKeuangan
         ]);
     } catch (PDOException $e) {
         echo json_encode([
             'success' => false,
-            'error' => $e->getMessage()
+            'error' => 'Database error: ' . $e->getMessage()
+        ]);
+    }
+
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $inputJSON = file_get_contents("php://input");
+    $input = json_decode($inputJSON, true);
+
+    $waktuTransaksi = $input['waktu_transaksi'] ?? null; // Ambil input waktu_transaksi
+
+    try {
+        // **1️⃣ Buat Query Dasar**
+        $query = "
+            SELECT 
+                lk.id AS id_laporan,
+                lk.id_toko,
+                lk.omset_penjualan,
+                lk.biaya_komisi,
+                lk.total_bersih,
+                DATE_FORMAT(t.waktu_transaksi, '%d-%m-%Y %H:%i:%s') AS waktu_transaksi
+            FROM laporankeuangan lk
+            JOIN transaksilaporan tl ON lk.id = tl.id_laporan
+            JOIN transaksi t ON tl.id_transaksi = t.id
+            WHERE lk.id_toko = ?
+        ";
+
+        // **2️⃣ Tambahkan Filter Waktu Fleksibel**
+        $params = [$id_toko];
+
+        if ($waktuTransaksi) {
+            $dateParts = explode('-', $waktuTransaksi);
+
+            if (count($dateParts) == 3) {
+                // **Format Lengkap (dd-mm-yyyy)**
+                $formattedDate = DateTime::createFromFormat('d-m-Y', $waktuTransaksi);
+                if ($formattedDate) {
+                    $query .= " AND DATE(t.waktu_transaksi) = ?";
+                    array_push($params, $formattedDate->format('Y-m-d'));
+                }
+            } elseif (count($dateParts) == 2) {
+                // **Format Bulan-Tahun (mm-yyyy)**
+                $formattedDate = DateTime::createFromFormat('m-Y', $waktuTransaksi);
+                if ($formattedDate) {
+                    $query .= " AND MONTH(t.waktu_transaksi) = ? AND YEAR(t.waktu_transaksi) = ?";
+                    array_push($params, $formattedDate->format('m'), $formattedDate->format('Y'));
+                }
+            } elseif (count($dateParts) == 1) {
+                if (strlen($dateParts[0]) == 4) {
+                    // **Tahun (yyyy)**
+                    $query .= " AND YEAR(t.waktu_transaksi) = ?";
+                    array_push($params, $dateParts[0]);
+                } elseif (strlen($dateParts[0]) == 2) {
+                    // **Hari (dd) dengan bulan & tahun saat ini**
+                    $currentMonth = date('m');
+                    $currentYear = date('Y');
+                    $query .= " AND DAY(t.waktu_transaksi) = ? AND MONTH(t.waktu_transaksi) = ? AND YEAR(t.waktu_transaksi) = ?";
+                    array_push($params, $dateParts[0], $currentMonth, $currentYear);
+                }
+            }
+        }
+
+        $stmt = $pdo->prepare($query);
+        $stmt->execute($params);
+        $laporanKeuangan = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        echo json_encode([
+            'success' => true,
+            'message' => 'Data laporan keuangan berhasil diambil',
+            'data' => $laporanKeuangan
+        ]);
+    } catch (PDOException $e) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Database error: ' . $e->getMessage()
         ]);
     }
 } else {
@@ -47,4 +130,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         'error' => 'Invalid request method'
     ]);
 }
+
 ?>

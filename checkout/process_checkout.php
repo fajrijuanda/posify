@@ -1,109 +1,148 @@
 <?php
+
 header('Content-Type: application/json');
-include("../config/dbconnection.php");
 include('../config/cors.php');
+include("../config/dbconnection.php");
 include('../middlewares/auth_middleware.php'); // Middleware untuk validasi token
 
-// Validasi token untuk otentikasi
-$user_id = validateToken($pdo); // Mendapatkan user_id dari token jika valid
+$dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/../');
+$dotenv->load();
+$baseURL = $_ENV['APP_URL'] ?? 'http://posify.test';
+
+$userData = validateToken();
+
+if (!$userData) {
+    echo json_encode(['success' => false, 'error' => 'Token tidak valid atau sudah expired']);
+    exit;
+}
+
+$user_id = $userData['user_id'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $id_keranjang = $_POST['id_keranjang'] ?? null;
-    $id_toko = $_POST['id_toko'] ?? null;
-    $id_voucher = $_POST['id_voucher'] ?? null; // Opsional
-    $metode_pengiriman = $_POST['metode_pengiriman'] ?? 'Bungkus'; // Default: Bungkus
+    $inputJSON = file_get_contents("php://input");
+    $input = json_decode($inputJSON, true);
 
-    if (empty($id_keranjang) || empty($id_toko)) {
+    if (!is_array($input)) {
         echo json_encode([
             'success' => false,
-            'error' => 'ID Keranjang dan ID Toko diperlukan'
+            'error' => 'Invalid JSON format'
+        ]);
+        exit;
+    }
+
+    $id_checkout = $input['id_checkout'] ?? null;
+    $metode_pembayaran = $input['metode_pembayaran'] ?? null;
+    $nominal_tunai = $input['nominal_tunai'] ?? null;
+
+    if (empty($id_checkout) || empty($metode_pembayaran)) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'ID checkout dan metode pembayaran diperlukan'
         ]);
         exit;
     }
 
     try {
-        // Periksa apakah voucher sudah digunakan
-        if ($id_voucher) {
-            $queryVoucherCheck = "
-                SELECT id FROM checkout 
-                WHERE id_voucher = ? AND status = 'checkout'";
-            $stmtVoucherCheck = $pdo->prepare($queryVoucherCheck);
-            $stmtVoucherCheck->execute([$id_voucher]);
-            if ($stmtVoucherCheck->rowCount() > 0) {
+        $pdo->beginTransaction();
+
+        // **1️⃣ Ambil data checkout & id_keranjang berdasarkan id_checkout**
+        $queryCheckout = "
+            SELECT c.id_keranjang, k.id_toko, c.total_harga, c.id_pelanggan
+            FROM checkout c
+            JOIN keranjang k ON c.id_keranjang = k.id
+            WHERE c.id = ?";
+        $stmtCheckout = $pdo->prepare($queryCheckout);
+        $stmtCheckout->execute([$id_checkout]);
+        $checkout = $stmtCheckout->fetch(PDO::FETCH_ASSOC);
+
+        if (!$checkout) {
+            echo json_encode([
+                'success' => false,
+                'error' => 'Checkout tidak ditemukan'
+            ]);
+            exit;
+        }
+
+        $id_keranjang = $checkout['id_keranjang'];
+        $id_toko = $checkout['id_toko'];
+        $total_harga = floatval($checkout['total_harga']);
+        $id_pelanggan = $checkout['id_pelanggan'];
+
+        $nomor_order = "ORD-" . date("dmY") . "-" . strtoupper(substr(md5(time()), 0, 8));
+
+        if ($metode_pembayaran === 'tunai') {
+            $nominal_tunai = floatval($nominal_tunai);
+
+            if ($nominal_tunai < $total_harga) {
                 echo json_encode([
                     'success' => false,
-                    'error' => 'Voucher sudah digunakan di checkout sebelumnya'
+                    'error' => 'Nominal tunai tidak boleh kurang dari total harga'
                 ]);
                 exit;
             }
-        }
 
-        // Hitung subtotal
-        $querySubtotal = "
-            SELECT SUM(k.jumlah * p.harga) AS subtotal
-            FROM keranjang k
-            JOIN produk p ON k.id_produk = p.id
-            WHERE k.id_toko = ?";
-        $stmtSubtotal = $pdo->prepare($querySubtotal);
-        $stmtSubtotal->execute([$id_toko]);
-        $subtotal = $stmtSubtotal->fetchColumn();
+            // **Hitung uang kembalian**
+            $uang_kembalian = $nominal_tunai - $total_harga;
 
-        // Hitung total harga setelah voucher
-        $diskon = 0;
-        if (!empty($id_voucher)) {
-            $queryVoucher = "SELECT nilai_diskon FROM voucher WHERE id = ? AND kuota > 0";
-            $stmtVoucher = $pdo->prepare($queryVoucher);
-            $stmtVoucher->execute([$id_voucher]);
-            $voucher = $stmtVoucher->fetch(PDO::FETCH_ASSOC);
+            $queryPembayaran = "
+                INSERT INTO pembayaran (id_checkout, metode_pembayaran, nominal, status, waktu_pembayaran)
+                VALUES (?, 'tunai', ?, 'completed', NOW())";
+            $stmtPembayaran = $pdo->prepare($queryPembayaran);
+            $stmtPembayaran->execute([$id_checkout, $nominal_tunai]);
+            $id_pembayaran = $pdo->lastInsertId();
 
-            if ($voucher) {
-                $diskon = $voucher['nilai_diskon'];
-            }
-        }
+            // **Insert ke tabel transaksi dan ambil ID-nya**
+            $queryTransaksi = "
+                INSERT INTO transaksi (id_pembayaran, nomor_order, waktu_transaksi, status)
+                VALUES (?, ?, NOW(), 'completed')";
+            $stmtTransaksi = $pdo->prepare($queryTransaksi);
+            $stmtTransaksi->execute([$id_pembayaran, $nomor_order]);
+            $id_transaksi = $pdo->lastInsertId(); // ✅ Ambil ID transaksi
 
-        $total_harga = max(0, $subtotal - $diskon);
+            // **Ambil waktu_transaksi setelah berhasil disimpan**
+            $queryWaktuTransaksi = "SELECT waktu_transaksi FROM transaksi WHERE id = ?";
+            $stmtWaktuTransaksi = $pdo->prepare($queryWaktuTransaksi);
+            $stmtWaktuTransaksi->execute([$id_transaksi]);
+            $waktuTransaksi = $stmtWaktuTransaksi->fetchColumn();
 
-        // Periksa apakah data checkout sementara sudah ada
-        $queryCheck = "
-            SELECT id 
-            FROM checkout 
-            WHERE id_keranjang = ? AND status = 'sementara'";
-        $stmtCheck = $pdo->prepare($queryCheck);
-        $stmtCheck->execute([$id_keranjang]);
-        $checkout = $stmtCheck->fetch(PDO::FETCH_ASSOC);
+            // **Hitung biaya komisi (2.5%)**
+            $biaya_komisi = $total_harga * 0.025;
 
-        if ($checkout) {
-            // Perbarui data checkout menjadi status 'checkout'
-            $queryUpdate = "
-                UPDATE checkout 
-                SET id_voucher = ?, metode_pengiriman = ?, subtotal = ?, total_harga = ?, status = 'checkout'
-                WHERE id = ?";
-            $stmtUpdate = $pdo->prepare($queryUpdate);
-            $stmtUpdate->execute([$id_voucher, $metode_pengiriman, $subtotal, $total_harga, $checkout['id']]);
+            // **Hitung total bersih**
+            $total_bersih = $total_harga - $biaya_komisi;
 
-            $id_checkout = $checkout['id'];
+            // **Update status checkout menjadi `checkout`**
+            $queryUpdateCheckout = "UPDATE checkout SET status = 'checkout' WHERE id = ?";
+            $stmtUpdateCheckout = $pdo->prepare($queryUpdateCheckout);
+            $stmtUpdateCheckout->execute([$id_checkout]);
+
+            $message = "Pembayaran tunai berhasil";
         } else {
-            // Simpan data checkout baru
-            $queryInsert = "
-                INSERT INTO checkout (id_keranjang, id_voucher, metode_pengiriman, subtotal, total_harga, status)
-                VALUES (?, ?, ?, ?, ?, 'checkout')";
-            $stmtInsert = $pdo->prepare($queryInsert);
-            $stmtInsert->execute([$id_keranjang, $id_voucher, $metode_pengiriman, $subtotal, $total_harga]);
-
-            $id_checkout = $pdo->lastInsertId();
+            echo json_encode([
+                'success' => false,
+                'error' => 'Metode pembayaran tidak valid'
+            ]);
+            exit;
         }
+
+        $pdo->commit();
 
         echo json_encode([
             'success' => true,
-            'message' => 'Checkout berhasil',
-            'data' => [
-                'id_checkout' => $id_checkout,
-                'subtotal' => $subtotal,
-                'diskon' => $diskon,
-                'total_harga' => $total_harga
-            ]
+            'message' => $message,
+            'id_transaksi' => $id_transaksi,
+            'nomor_order' => $nomor_order,
+            'id_keranjang' => $id_keranjang,
+            'metode_pembayaran' => $metode_pembayaran,
+            'total_harga' => $total_harga,
+            'biaya_komisi' => $biaya_komisi,
+            'total_bersih' => $total_bersih,
+            'nominal_tunai' => $nominal_tunai,
+            'uang_kembalian' => $uang_kembalian,
+            'waktu_transaksi' => $waktuTransaksi
         ]);
     } catch (PDOException $e) {
+        $pdo->rollBack();
         echo json_encode([
             'success' => false,
             'error' => 'Database error: ' . $e->getMessage()
@@ -115,4 +154,3 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'error' => 'Invalid request method'
     ]);
 }
-?>
