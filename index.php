@@ -43,8 +43,11 @@ switch (true) {
         break;
 
     // Checkout
-    case preg_match('/^\/checkout\/apply_voucher$/', $path):
-        include('./checkout/apply_voucher.php');
+    case preg_match('/^\/checkout\/generate_midtrans$/', $path):
+        include('./checkout/generate_midtrans.php');
+        break;
+    case preg_match('/^\/checkout\/midtrans_webhook$/', $path):
+        include('./checkout/midtrans_webhook.php');
         break;
     case preg_match('/^\/checkout\/get_checkout$/', $path):
         include('./checkout/get_checkout.php');
@@ -54,9 +57,6 @@ switch (true) {
         break;
     case preg_match('/^\/checkout\/update_checkout$/', $path):
         include('./checkout/update_checkout.php');
-        break;
-    case preg_match('/^\/checkout\/delete_checkout$/', $path):
-        include('./checkout/delete_checkout.php');
         break;
     case preg_match('/^\/checkout\/save_checkout$/', $path):
         include('./checkout/save_checkout.php');

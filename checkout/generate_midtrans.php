@@ -1,95 +1,153 @@
 <?php
+
 header('Content-Type: application/json');
-require_once '../config/dbconnection.php';
-require_once '../config/midtrans_config.php'; // File konfigurasi Midtrans
 include('../config/cors.php');
+include("../config/dbconnection.php");
 include('../middlewares/auth_middleware.php'); // Middleware untuk validasi token
 
-// Validasi token untuk otentikasi
-use Midtrans\Snap;
-use Midtrans\Config;
+require_once('../vendor/autoload.php'); // Pastikan Midtrans SDK sudah diinstall via Composer
 
-$user_id = validateToken($pdo); // Mendapatkan user_id dari token jika valid
+$dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/../');
+$dotenv->load();
+$baseURL = $_ENV['APP_URL'] ?? 'http://posify.test';
+
+\Midtrans\Config::$serverKey = $_ENV['MIDTRANS_SERVER_KEY'];
+\Midtrans\Config::$clientKey = $_ENV['MIDTRANS_CLIENT_KEY'];
+\Midtrans\Config::$isProduction = false; // Ganti dengan true jika di production
+\Midtrans\Config::$isSanitized = true;
+\Midtrans\Config::$is3ds = true;
+
+$userData = validateToken();
+
+if (!$userData) {
+    echo json_encode(['success' => false, 'error' => 'Token tidak valid atau sudah expired']);
+    exit;
+}
+
+$user_id = $userData['user_id'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $id_checkout = $_POST['id_checkout'] ?? null;
+    $inputJSON = file_get_contents("php://input");
+    $input = json_decode($inputJSON, true);
 
-    if (empty($id_checkout)) {
+    if (!is_array($input)) {
         echo json_encode([
             'success' => false,
-            'error' => 'ID Checkout diperlukan'
+            'error' => 'Invalid JSON format'
+        ]);
+        exit;
+    }
+
+    $id_checkout = $input['id_checkout'] ?? null;
+    $metode_pembayaran = $input['metode_pembayaran'] ?? null;
+
+    if (empty($id_checkout) || empty($metode_pembayaran)) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'ID checkout dan metode pembayaran diperlukan'
         ]);
         exit;
     }
 
     try {
+        $pdo->beginTransaction();
+
         // Ambil data checkout
-        $query = "SELECT total_harga FROM checkout WHERE id = ?";
-        $stmt = $pdo->prepare($query);
-        $stmt->execute([$id_checkout]);
-        $checkout = $stmt->fetch(PDO::FETCH_ASSOC);
+        $queryCheckout = "
+            SELECT c.id_keranjang, k.id_toko, c.total_harga, c.id_pelanggan
+            FROM checkout c
+            JOIN keranjang k ON c.id_keranjang = k.id
+            WHERE c.id = ?";
+        $stmtCheckout = $pdo->prepare($queryCheckout);
+        $stmtCheckout->execute([$id_checkout]);
+        $checkout = $stmtCheckout->fetch(PDO::FETCH_ASSOC);
 
         if (!$checkout) {
             echo json_encode([
                 'success' => false,
-                'error' => 'Data checkout tidak ditemukan'
+                'error' => 'Checkout tidak ditemukan'
             ]);
             exit;
         }
 
-        $total_harga = $checkout['total_harga'];
+        $id_keranjang = $checkout['id_keranjang'];
+        $id_toko = $checkout['id_toko'];
+        $total_harga = floatval($checkout['total_harga']);
+        $id_pelanggan = $checkout['id_pelanggan'];
 
-        // Konfigurasi Midtrans
-        Config::$serverKey = 'YOUR_SERVER_KEY';
-        Config::$isProduction = false; // Ubah ke true jika di production
-        Config::$isSanitized = true;
-        Config::$is3ds = true;
+        $nomor_order = "ORD-" . date("dmY") . "-" . strtoupper(substr(md5(time()), 0, 8));
 
-        // Data transaksi
-        $transaction_details = [
-            'order_id' => uniqid('ORDER-'),
-            'gross_amount' => $total_harga
-        ];
+        if ($metode_pembayaran === 'non-tunai') {
+            $transaction_details = [
+                'order_id' => $nomor_order,
+                'gross_amount' => $total_harga,
+            ];
 
-        $item_details = [
-            [
-                'id' => $id_checkout,
-                'price' => $total_harga,
-                'quantity' => 1,
-                'name' => "Pembayaran Order #$id_checkout"
-            ]
-        ];
+            $customer_details = [
+                'id' => $id_pelanggan,
+            ];
 
-        $customer_details = [
-            'first_name' => 'Nama Pelanggan',
-            'email' => 'email@pelanggan.com',
-            'phone' => '08123456789'
-        ];
+            $params = [
+                'transaction_details' => $transaction_details,
+                'customer_details' => $customer_details,
+            ];
 
-        $params = [
-            'transaction_details' => $transaction_details,
-            'item_details' => $item_details,
-            'customer_details' => $customer_details
-        ];
+            // Generate Snap Token dari Midtrans
+            $snapToken = \Midtrans\Snap::getSnapToken($params);
 
-        // Dapatkan Snap Token
-        $snapToken = Snap::getSnapToken($params);
+            // Insert ke tabel pembayaran
+            $queryPembayaran = "
+                INSERT INTO pembayaran (id_checkout, metode_pembayaran, nominal, status, waktu_pembayaran)
+                VALUES (?, 'midtrans', ?, 'pending', NOW())";
+            $stmtPembayaran = $pdo->prepare($queryPembayaran);
+            $stmtPembayaran->execute([$id_checkout, $total_harga]);
+            $id_pembayaran = $pdo->lastInsertId();
 
-        // Simpan data pembayaran ke tabel pembayaran
-        $queryPayment = "
-            INSERT INTO pembayaran (id_checkout, metode, detail, status, waktu_pembayaran)
-            VALUES (?, 'nontunai', ?, 'pending', NOW())";
-        $stmtPayment = $pdo->prepare($queryPayment);
-        $stmtPayment->execute([$id_checkout, json_encode($transaction_details)]);
+            // Insert ke tabel transaksi
+            $queryTransaksi = "
+                INSERT INTO transaksi (id_pembayaran, nomor_order, waktu_transaksi, status)
+                VALUES (?, ?, NOW(), 'pending')";
+            $stmtTransaksi = $pdo->prepare($queryTransaksi);
+            $stmtTransaksi->execute([$id_pembayaran, $nomor_order]);
+            $id_transaksi = $pdo->lastInsertId();
 
-        echo json_encode([
-            'success' => true,
-            'snap_token' => $snapToken
-        ]);
-    } catch (Exception $e) {
+            // Simpan log transaksi di tabel midtrans_log
+            $queryMidtransLog = "
+                INSERT INTO midtrans_log (id_pembayaran, transaction_id, amount, status, raw_response)
+                VALUES (?, ?, ?, ?, ?)";
+            $stmtMidtransLog = $pdo->prepare($queryMidtransLog);
+            $stmtMidtransLog->execute([
+                $id_pembayaran,
+                $nomor_order,
+                $total_harga,
+                'pending',
+                json_encode(['snap_token' => $snapToken])
+            ]);
+
+            $pdo->commit();
+
+            echo json_encode([
+                'success' => true,
+                'message' => 'Transaksi Midtrans berhasil dibuat',
+                'snap_token' => $snapToken,
+                'id_transaksi' => $id_transaksi,
+                'nomor_order' => $nomor_order,
+                'metode_pembayaran' => $metode_pembayaran,
+                'total_harga' => $total_harga,
+            ]);
+        } else {
+            echo json_encode([
+                'success' => false,
+                'error' => 'Metode pembayaran tidak valid'
+            ]);
+            exit;
+        }
+
+    } catch (PDOException $e) {
+        $pdo->rollBack();
         echo json_encode([
             'success' => false,
-            'error' => $e->getMessage()
+            'error' => 'Database error: ' . $e->getMessage()
         ]);
     }
 } else {
@@ -98,4 +156,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'error' => 'Invalid request method'
     ]);
 }
+
 ?>

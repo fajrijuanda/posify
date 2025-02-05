@@ -30,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     }
 
     try {
-        // Ambil detail transaksi
+        // 🔹 Ambil detail transaksi dan id_checkout
         $queryTransaksi = "
             SELECT 
                 t.nomor_order,
@@ -55,36 +55,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             exit;
         }
 
-        // Ambil detail produk dari keranjang
+        $id_checkout = $transaksi['id_checkout'];
+
+        // 🔹 Ambil produk yang sesuai dengan `id_checkout`
         $queryProduk = "
             SELECT 
                 p.nama_produk,
-                pk.kuantitas,
-                p.harga AS harga_produk,
-                (pk.kuantitas * p.harga) AS total_harga_produk,
+                p.harga_modal,
+                p.harga_jual,
+                p.deskripsi,
                 p.gambar
-            FROM produkkeranjang pk
-            JOIN produk p ON pk.id_produk = p.id
-            WHERE pk.id_keranjang = ?";
+            FROM produk p
+            JOIN produkkeranjang pk ON p.id = pk.id_produk
+            WHERE pk.id_keranjang = (SELECT id_keranjang FROM checkout WHERE id = ?)";
         $stmtProduk = $pdo->prepare($queryProduk);
-        $stmtProduk->execute([$transaksi['id_checkout']]);
+        $stmtProduk->execute([$id_checkout]);
         $produk = $stmtProduk->fetchAll(PDO::FETCH_ASSOC);
 
-        // Ambil informasi laporan keuangan
+        // 🔹 Ambil informasi laporan keuangan berdasarkan id_checkout
         $queryLaporan = "
             SELECT 
-                l.total_bersih,
+                l.omset_penjualan,
                 l.biaya_komisi,
-                (l.biaya_komisi / 100) * c.total_harga AS komisi_aplikasi,
-                c.total_harga AS omset_penjualan
-            FROM laporan_keuangan l
+                l.total_bersih
+            FROM laporankeuangan l
             JOIN checkout c ON l.id_toko = c.id_keranjang
             WHERE c.id = ?";
         $stmtLaporan = $pdo->prepare($queryLaporan);
-        $stmtLaporan->execute([$transaksi['id_checkout']]);
+        $stmtLaporan->execute([$id_checkout]);
         $laporan = $stmtLaporan->fetch(PDO::FETCH_ASSOC);
 
-        // Hasilkan respon
+        // 🔹 Hasilkan respon JSON
         echo json_encode([
             'success' => true,
             'data' => [
@@ -105,4 +106,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         'error' => 'Invalid request method'
     ]);
 }
+
 ?>

@@ -27,8 +27,8 @@ if (!$id_toko) {
     exit;
 }
 
-// METHOD DELETE: Menghapus atau mengurangi jumlah produk dalam keranjang
-if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
+// METHOD POST: Mengurangi jumlah produk dalam keranjang
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $input = json_decode(file_get_contents("php://input"), true);
 
     $id_produk = $input['id_produk'] ?? null;
@@ -84,19 +84,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
             $stmtUpdate = $pdo->prepare($queryUpdate);
             $stmtUpdate->execute([$newQuantity, $resultCheck['id']]);
         } else {
-            // Jika kuantitas sudah 0, hapus produk dari keranjang
-            $queryDelete = "DELETE FROM produkkeranjang WHERE id = ?";
-            $stmtDelete = $pdo->prepare($queryDelete);
-            $stmtDelete->execute([$resultCheck['id']]);
+            // Jika kuantitas mencapai 0 atau kurang, soft delete produk
+            $querySoftDelete = "UPDATE produkkeranjang SET kuantitas = 0, deleted_at = NOW() WHERE id = ?";
+            $stmtSoftDelete = $pdo->prepare($querySoftDelete);
+            $stmtSoftDelete->execute([$resultCheck['id']]);
 
-            // Update total_produk di `keranjang` karena ada produk yang dihapus
+            // Kurangi jumlah produk di `keranjang`
             $queryUpdateTotal = "UPDATE keranjang SET total_produk = total_produk - 1 WHERE id = ?";
             $stmtUpdateTotal = $pdo->prepare($queryUpdateTotal);
             $stmtUpdateTotal->execute([$id_keranjang]);
+
         }
 
         // **Hitung ulang total produk dalam keranjang berdasarkan id_keranjang**
-        $queryTotalProduk = "SELECT SUM(kuantitas) AS total_produk FROM produkkeranjang WHERE id_keranjang = ?";
+        $queryTotalProduk = "SELECT SUM(kuantitas) AS total_produk FROM produkkeranjang WHERE id_keranjang = ? AND deleted_at IS NULL";
         $stmtTotalProduk = $pdo->prepare($queryTotalProduk);
         $stmtTotalProduk->execute([$id_keranjang]);
         $resultTotalProduk = $stmtTotalProduk->fetch(PDO::FETCH_ASSOC);
@@ -111,7 +112,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
 
         echo json_encode([
             'success' => true,
-            'message' => $newQuantity > 0 ? 'Jumlah produk dalam keranjang dikurangi' : 'Produk dihapus dari keranjang',
+            'message' => $newQuantity > 0 ? 'Jumlah produk dalam keranjang dikurangi' : 'Produk ditandai sebagai dihapus (soft delete)',
+            'id_produk' => $id_produk,
+            'id_keranjang' => $id_keranjang,
+            'new_quantity' => $newQuantity,
+            'total_produk' => $total_produk
         ]);
     } catch (PDOException $e) {
         $pdo->rollBack();
