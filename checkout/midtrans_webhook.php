@@ -144,39 +144,39 @@ try {
         $stokUpdateList = [];
         $totalProdukSebelum = 0;
 
-        foreach ($produkList as $produk) {
-            $id_produk = $produk['id_produk'];
-            $id_produkkeranjang = $produk['id'];
-            $kuantitas = $produk['kuantitas'];
-            $stok_sebelumnya = $produk['stok'];
-            $stok_setelah = max(0, $stok_sebelumnya - $kuantitas);
+        // foreach ($produkList as $produk) {
+        //     $id_produk = $produk['id_produk'];
+        //     $id_produkkeranjang = $produk['id'];
+        //     $kuantitas = $produk['kuantitas'];
+        //     $stok_sebelumnya = $produk['stok'];
+        //     $stok_setelah = max(0, $stok_sebelumnya - $kuantitas);
 
-            // Update stok di tabel produk
-            $queryUpdateStok = "UPDATE produk SET stok = ? WHERE id = ?";
-            $stmtUpdateStok = $pdo->prepare($queryUpdateStok);
-            $stmtUpdateStok->execute([$stok_setelah, $id_produk]);
+        //     // Update stok di tabel produk
+        //     $queryUpdateStok = "UPDATE produk SET stok = ? WHERE id = ?";
+        //     $stmtUpdateStok = $pdo->prepare($queryUpdateStok);
+        //     $stmtUpdateStok->execute([$stok_setelah, $id_produk]);
 
-            // **2️⃣ Update deleted_at di tabel produkkeranjang berdasarkan id_keranjang**
-            $queryUpdateProdukKeranjang = "UPDATE produkkeranjang SET deleted_at = NOW() WHERE id_keranjang = ?";
-            $stmtUpdateProdukKeranjang = $pdo->prepare($queryUpdateProdukKeranjang);
-            $stmtUpdateProdukKeranjang->execute([$id_keranjang]);
+        //     // **2️⃣ Update deleted_at di tabel produkkeranjang berdasarkan id_keranjang**
+        //     $queryUpdateProdukKeranjang = "UPDATE produkkeranjang SET deleted_at = NOW() WHERE id_keranjang = ?";
+        //     $stmtUpdateProdukKeranjang = $pdo->prepare($queryUpdateProdukKeranjang);
+        //     $stmtUpdateProdukKeranjang->execute([$id_keranjang]);
 
-            // Hapus dari produkkeranjang jika kuantitas 0
-            if ($kuantitas > 0) {
-                $queryDeleteProdukKeranjang = "UPDATE produkkeranjang SET kuantitas = 0, deleted_at = NOW() WHERE id = ?";
-                $stmtDeleteProdukKeranjang = $pdo->prepare($queryDeleteProdukKeranjang);
-                $stmtDeleteProdukKeranjang->execute([$id_produkkeranjang]);
-            }
+        //     // Hapus dari produkkeranjang jika kuantitas 0
+        //     if ($kuantitas > 0) {
+        //         $queryDeleteProdukKeranjang = "UPDATE produkkeranjang SET kuantitas = 0, deleted_at = NOW() WHERE id = ?";
+        //         $stmtDeleteProdukKeranjang = $pdo->prepare($queryDeleteProdukKeranjang);
+        //         $stmtDeleteProdukKeranjang->execute([$id_produkkeranjang]);
+        //     }
 
-            $stokUpdateList[] = [
-                'id_produk' => $id_produk,
-                'stok_sebelumnya' => $stok_sebelumnya,
-                'dikurangi' => $kuantitas,
-                'stok_sekarang' => $stok_setelah
-            ];
+        //     $stokUpdateList[] = [
+        //         'id_produk' => $id_produk,
+        //         'stok_sebelumnya' => $stok_sebelumnya,
+        //         'dikurangi' => $kuantitas,
+        //         'stok_sekarang' => $stok_setelah
+        //     ];
 
-            $totalProdukSebelum += $kuantitas;
-        }
+        //     $totalProdukSebelum += $kuantitas;
+        // }
 
         // **🔹 Update total produk di keranjang**
         $queryUpdateKeranjang = "UPDATE keranjang SET total_produk = total_produk - ? WHERE id = ?";

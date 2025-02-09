@@ -12,7 +12,7 @@ $dotenv->load();
 $baseURL = $_ENV['APP_URL'] ?? 'http://posify.test';
 
 // Validasi token untuk otentikasi
-$authResult = validateToken(); // Tidak perlu parameter
+$authResult = validateToken(); 
 if (!is_array($authResult) || !isset($authResult['user_id'], $authResult['id_toko'])) {
     http_response_code(401);
     echo json_encode(['success' => false, 'error' => 'Token tidak valid atau sudah expired']);
@@ -34,11 +34,11 @@ $nama_produk = $data['nama_produk'] ?? '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
-        // Query untuk mendapatkan produk berdasarkan ID Toko dan optional nama produk (pencarian fleksibel)
+        // Query untuk mendapatkan produk berdasarkan ID Toko, hanya stok > 0, dan optional nama produk
         $query = "
             SELECT id, nama_produk, harga_modal, harga_jual, stok, deskripsi, gambar
             FROM produk
-            WHERE id_toko = ?";
+            WHERE id_toko = ? AND stok > 0";
 
         if (!empty($nama_produk)) {
             $query .= " AND nama_produk LIKE ?";
@@ -47,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt = $pdo->prepare($query);
 
         if (!empty($nama_produk)) {
-            $stmt->execute([$id_toko, "%$nama_produk%"]); // Mencari produk yang mengandung karakter inputan
+            $stmt->execute([$id_toko, "%$nama_produk%"]); // Mencari produk yang mengandung inputan
         } else {
             $stmt->execute([$id_toko]);
         }
@@ -58,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (empty($produk)) {
             echo json_encode([
                 'success' => true,
-                'message' => 'Produk tidak ditemukan',
+                'message' => 'Produk tidak ditemukan atau stok habis',
                 'data' => []
             ]);
             exit;

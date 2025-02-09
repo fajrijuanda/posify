@@ -11,7 +11,7 @@ $dotenv->load();
 $baseURL = $_ENV['APP_URL'] ?? 'http://posify.test';
 
 // Validasi token untuk otentikasi
-$authResult = validateToken(); // Tidak perlu parameter
+$authResult = validateToken(); 
 if (!is_array($authResult) || !isset($authResult['user_id'], $authResult['id_toko'])) {
     http_response_code(401);
     echo json_encode(['success' => false, 'error' => 'Token tidak valid atau sudah expired']);
@@ -28,11 +28,11 @@ error_log("ID Toko: " . $id_toko);
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     try {
-        // Ambil semua produk berdasarkan ID Toko
+        // Ambil semua produk yang memiliki stok lebih dari 0 berdasarkan ID Toko
         $query = "
             SELECT id, nama_produk, harga_modal, harga_jual, stok, deskripsi, gambar
             FROM produk
-            WHERE id_toko = ?";
+            WHERE id_toko = ? AND stok > 0";
         $stmt = $pdo->prepare($query);
         $stmt->execute([$id_toko]);
         $produk = $stmt->fetchAll(PDO::FETCH_ASSOC);

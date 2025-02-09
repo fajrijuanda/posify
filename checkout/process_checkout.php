@@ -119,16 +119,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmtUpdateStok->execute([$stok_setelah, $id_produk]);
 
                 // Update kuantitas di `produkkeranjang`
-                $queryUpdateProdukKeranjang = "UPDATE produkkeranjang SET kuantitas = 0 WHERE id_produk = ? AND id_keranjang = ?";
-                $stmtUpdateProdukKeranjang = $pdo->prepare($queryUpdateProdukKeranjang);
-                $stmtUpdateProdukKeranjang->execute([$id_produk, $id_keranjang]);
+            //     $queryUpdateProdukKeranjang = "UPDATE produkkeranjang SET kuantitas = 0 WHERE id_produk = ? AND id_keranjang = ?";
+            //     $stmtUpdateProdukKeranjang = $pdo->prepare($queryUpdateProdukKeranjang);
+            //     $stmtUpdateProdukKeranjang->execute([$id_produk, $id_keranjang]);
                 
-            // Hapus dari produkkeranjang jika kuantitas 0
-            if ($kuantitas > 0) {
-                $queryDeleteProdukKeranjang = "UPDATE produkkeranjang SET kuantitas = 0, deleted_at = NOW() WHERE id = ?";
-                $stmtDeleteProdukKeranjang = $pdo->prepare($queryDeleteProdukKeranjang);
-                $stmtDeleteProdukKeranjang->execute([$id_produkkeranjang]);
-            }
+            // // Hapus dari produkkeranjang jika kuantitas 0
+            // if ($kuantitas > 0) {
+            //     $queryDeleteProdukKeranjang = "UPDATE produkkeranjang SET kuantitas = 0, deleted_at = NOW() WHERE id = ?";
+            //     $stmtDeleteProdukKeranjang = $pdo->prepare($queryDeleteProdukKeranjang);
+            //     $stmtDeleteProdukKeranjang->execute([$id_produkkeranjang]);
+            // }
 
                 $stokUpdateList[] = [
                     'id_produk' => $id_produk,
@@ -175,6 +175,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmtLaporanKeuangan = $pdo->prepare($queryLaporanKeuangan);
             $stmtLaporanKeuangan->execute([$id_toko, $total_harga, $biaya_komisi, $total_bersih]);
             $id_laporan = $pdo->lastInsertId();
+            
+            // **7️⃣ Simpan id laporan ke tabel transaksilaporan**
+            $queryTransaksiLaporan = "
+                INSERT INTO transaksilaporan (id_transaksi, id_laporan)
+                VALUES (?, ?)";
+            $stmtTransaksiLaporan = $pdo->prepare($queryTransaksiLaporan);
+            $stmtTransaksiLaporan->execute([$id_transaksi, $id_laporan]);
 
             $pdo->commit();
 

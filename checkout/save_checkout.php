@@ -100,13 +100,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmtCheck->execute([$id_keranjang]);
         $checkout = $stmtCheck->fetch(PDO::FETCH_ASSOC);
 
-        if ($checkout) {
+       if ($checkout) {
             // Update data checkout jika sudah ada
             $queryUpdate = "
                 UPDATE checkout 
                 SET subtotal = ?, total_harga = ?, metode_pengiriman = ?, id_voucher = ?, id_pelanggan = ?
                 WHERE id = ?";
-            $stmtUpdate = $pdo->prepare($queryUpdate);
+            $stmtUpdate = $pdo ->prepare($queryUpdate);
             $stmtUpdate->execute([$subtotal, $total_harga, $metode_pengiriman, $id_voucher, $id_pelanggan, $checkout['id']]);
 
             $id_checkout = $checkout['id']; // Gunakan ID checkout yang sudah ada
