@@ -13,17 +13,14 @@ $dotenv->load();
 
 $secretKey = $_ENV['JWT_SECRET'] ?? null;
 
-// Validasi secret key
 if (empty($secretKey)) {
     respondJSON(['success' => false, 'error' => 'Secret key tidak ditemukan'], 500);
 }
 
-// Pastikan metode HTTP adalah POST
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     respondJSON(['success' => false, 'error' => 'Invalid request method'], 405);
 }
 
-// Ambil JSON input dari user
 $jsonInput = file_get_contents('php://input');
 $data = json_decode($jsonInput, true);
 
@@ -34,46 +31,59 @@ if (!is_array($data)) {
 $email = sanitizeInput($data['name'] ?? '');
 $password = sanitizeInput($data['password'] ?? '');
 
-// Validasi input kosong
 if (empty($email) || empty($password)) {
-    respondJSON(['success' => false, 'error' => 'nama toko dan Password wajib diisi'], 400);
+    respondJSON(['success' => false, 'error' => 'Nama toko dan Password wajib diisi'], 400);
 }
 
 try {
-    // Query untuk mendapatkan user berdasarkan email
-    $query = "SELECT id, name, password FROM users WHERE name = :name";
+    // ✅ 1. Ambil user berdasarkan name termasuk `role`
+    $query = "SELECT id, name, password, role FROM users WHERE name = :name";
     $stmt = $pdo->prepare($query);
     $stmt->bindParam(':name', $email);
     $stmt->execute();
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if ($user && password_verify($password, $user['password'])) {
-        // Ambil id_toko berdasarkan id_user dari tabel toko
+        // ✅ 2. Ambil id_toko berdasarkan id_user
         $stmt = $pdo->prepare("SELECT id FROM toko WHERE id_user = ?");
         $stmt->execute([$user['id']]);
         $toko = $stmt->fetch(PDO::FETCH_ASSOC);
+        $id_toko = $toko['id'] ?? null;
 
-        $id_toko = $toko['id'] ?? null; // Jika tidak ada toko, tetap null
+        // ✅ 3. Ambil id_langganan jika pengguna memiliki langganan premium
+        $stmt = $pdo->prepare("
+            SELECT id_langganan 
+            FROM langganantoko 
+            WHERE id_toko = ? 
+            AND tanggal_berakhir > CURDATE()
+            ORDER BY tanggal_berakhir DESC 
+            LIMIT 1
+        ");
+        $stmt->execute([$id_toko]);
+        $langganan = $stmt->fetch(PDO::FETCH_ASSOC);
+        $id_langganan = $langganan['id_langganan'] ?? null;
 
-        // Membuat payload untuk token JWT
+        // ✅ 4. Buat payload JWT
         $payload = [
             'user_id' => $user['id'],
             'nama_toko' => $user['name'],
-            'id_toko' => $id_toko, // Tambahkan id_toko ke token
-            'exp' => time() + 86400  // Token berlaku selama 1 hari (86400 detik)
+            'id_toko' => $id_toko,
+            'id_langganan' => $id_langganan, 
+            'role' => $user['role'], // Tambahkan role ke JWT
+            'exp' => time() + 86400 // Token berlaku selama 1 hari
         ];
 
-        // Encode payload menjadi JWT
+        // ✅ 5. Encode JWT Token
         $jwt = JWT::encode($payload, $secretKey, 'HS256');
 
-        // Simpan token ke tabel sessions
+        // ✅ 6. Simpan token ke tabel sessions
         $insertQuery = "INSERT INTO sessions (user_id, token, expired_at, created_at) VALUES (?, ?, ?, ?)";
         $insertStmt = $pdo->prepare($insertQuery);
         $expiredAt = date('Y-m-d H:i:s', time() + 86400);
         $createdAt = date('Y-m-d H:i:s');
         $insertStmt->execute([$user['id'], $jwt, $expiredAt, $createdAt]);
 
-        // Kirim token ke klien
+        // ✅ 7. Kirim respons JSON
         respondJSON([
             'success' => true,
             'message' => 'Login berhasil',
@@ -81,12 +91,13 @@ try {
             'user' => [
                 'id_user' => $user['id'],
                 'nama_toko' => $user['name'],
-                'id_toko' => $id_toko
+                'id_toko' => $id_toko,
+                'id_langganan' => $id_langganan, 
+                'role' => $user['role'] 
             ]
         ]);
     } else {
-        // Jika password salah atau user tidak ditemukan
-        respondJSON(['success' => false, 'error' => 'name atau Password salah'], 401);
+        respondJSON(['success' => false, 'error' => 'Nama atau Password salah'], 401);
     }
 } catch (PDOException $e) {
     respondJSON(['success' => false, 'error' => 'Database error: ' . $e->getMessage()], 500);
