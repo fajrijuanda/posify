@@ -130,6 +130,9 @@ switch (true) {
     case preg_match('/^\/produk\/get_produk$/', $path):
         include('./produk/get_produk.php');
         break;
+    case preg_match('/^\/produk\/produk_laris$/', $path):
+        include('./produk/produk_laris.php');
+        break;
 
     // Toko
     case preg_match('/^\/toko\/atur_akun$/', $path):
