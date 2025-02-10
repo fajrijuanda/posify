@@ -66,8 +66,8 @@ switch (true) {
     case preg_match('/^\/dashboard\/detail_produk$/', $path):
         include('./dashboard/detail_produk.php');
         break;
-    case preg_match('/^\/dashboard$/', $path):
-        include('./dashboard/dashboard.php');
+    case preg_match('/^\/dashboard\/dashboard-user$/', $path):
+        include('./dashboard/dashboard-user.php');
         break;
 
     // Kasir
@@ -132,6 +132,9 @@ switch (true) {
         break;
     case preg_match('/^\/produk\/produk_laris$/', $path):
         include('./produk/produk_laris.php');
+        break;
+    case preg_match('/^\/produk\/produk_terjual$/', $path):
+        include('./produk/produk_terjual.php');
         break;
 
     // Toko
