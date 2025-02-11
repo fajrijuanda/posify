@@ -49,7 +49,7 @@ try {
         ]);
         exit;
     }
-    
+
     $id_keranjang = $checkout['id_keranjang'];
     $id_toko = $checkout['id_toko'];
     $total_harga = floatval($checkout['total_harga']);
@@ -113,11 +113,12 @@ try {
 
         // **6️⃣ Simpan data laporan keuangan**
         $queryLaporanKeuangan = "
-            INSERT INTO laporankeuangan (id_toko, omset_penjualan, biaya_komisi, total_bersih)
-            VALUES (?, ?, ?, ?)";
+        INSERT INTO laporankeuangan (id_toko, omset_penjualan, biaya_komisi, total_bersih, tanggal)
+        VALUES (?, ?, ?, ?, NOW())"; // NOW() untuk menyimpan tanggal saat transaksi dilakukan
         $stmtLaporanKeuangan = $pdo->prepare($queryLaporanKeuangan);
         $stmtLaporanKeuangan->execute([$id_toko, $total_harga, $biaya_komisi, $total_bersih]);
         $id_laporan = $pdo->lastInsertId();
+
 
         // **7️⃣ Simpan id laporan ke tabel transaksilaporan**
         $queryTransaksiLaporan = "
@@ -141,60 +142,70 @@ try {
         $stmtProdukKeranjang->execute([$id_keranjang]);
         $produkList = $stmtProdukKeranjang->fetchAll(PDO::FETCH_ASSOC);
 
+        // Update stok dan produk terjual
+        foreach ($produkList as $produk) {
+            $id_produk = $produk['id_produk'];
+            $kuantitas = $produk['kuantitas'];
+            $stok = $produk['stok'];
+
+            // Pastikan stok mencukupi
+            if ($stok >= $kuantitas) {
+                // Kurangi stok produk
+                $queryUpdateStok = "UPDATE produk SET stok = stok - ? WHERE id = ?";
+                $stmtUpdateStok = $pdo->prepare($queryUpdateStok);
+                $stmtUpdateStok->execute([$kuantitas, $id_produk]);
+
+                // Update produk terjual di produkkeranjang
+                $queryUpdateTerjual = "UPDATE produkkeranjang SET produk_terjual = produk_terjual + ? WHERE id = ?";
+                $stmtUpdateTerjual = $pdo->prepare($queryUpdateTerjual);
+                $stmtUpdateTerjual->execute([$kuantitas, $produk['id']]);
+            } else {
+                echo json_encode([
+                    'success' => false,
+                    'error' => 'Stok tidak mencukupi untuk produk ID ' . $id_produk
+                ]);
+                $pdo->rollBack();
+                exit;
+            }
+        }
+
         $stokUpdateList = [];
         $totalProdukSebelum = 0;
 
-        // foreach ($produkList as $produk) {
-        //     $id_produk = $produk['id_produk'];
-        //     $id_produkkeranjang = $produk['id'];
-        //     $kuantitas = $produk['kuantitas'];
-        //     $stok_sebelumnya = $produk['stok'];
-        //     $stok_setelah = max(0, $stok_sebelumnya - $kuantitas);
-
-        //     // Update stok di tabel produk
-        //     $queryUpdateStok = "UPDATE produk SET stok = ? WHERE id = ?";
-        //     $stmtUpdateStok = $pdo->prepare($queryUpdateStok);
-        //     $stmtUpdateStok->execute([$stok_setelah, $id_produk]);
-
-        //     // **2️⃣ Update deleted_at di tabel produkkeranjang berdasarkan id_keranjang**
-        //     $queryUpdateProdukKeranjang = "UPDATE produkkeranjang SET deleted_at = NOW() WHERE id_keranjang = ?";
-        //     $stmtUpdateProdukKeranjang = $pdo->prepare($queryUpdateProdukKeranjang);
-        //     $stmtUpdateProdukKeranjang->execute([$id_keranjang]);
-
-        //     // Hapus dari produkkeranjang jika kuantitas 0
-        //     if ($kuantitas > 0) {
-        //         $queryDeleteProdukKeranjang = "UPDATE produkkeranjang SET kuantitas = 0, deleted_at = NOW() WHERE id = ?";
-        //         $stmtDeleteProdukKeranjang = $pdo->prepare($queryDeleteProdukKeranjang);
-        //         $stmtDeleteProdukKeranjang->execute([$id_produkkeranjang]);
-        //     }
-
-        //     $stokUpdateList[] = [
-        //         'id_produk' => $id_produk,
-        //         'stok_sebelumnya' => $stok_sebelumnya,
-        //         'dikurangi' => $kuantitas,
-        //         'stok_sekarang' => $stok_setelah
-        //     ];
-
-        //     $totalProdukSebelum += $kuantitas;
-        // }
 
         // **🔹 Update total produk di keranjang**
         $queryUpdateKeranjang = "UPDATE keranjang SET total_produk = total_produk - ? WHERE id = ?";
         $stmtUpdateKeranjang = $pdo->prepare($queryUpdateKeranjang);
         $stmtUpdateKeranjang->execute([$totalProdukSebelum, $id_keranjang]);
 
-        // **🔹 Dapatkan total produk setelah transaksi**
+        // **Hapus keranjang jika total_produk akhirnya 0**
         $queryGetTotalProduk = "SELECT total_produk FROM keranjang WHERE id = ?";
         $stmtGetTotalProduk = $pdo->prepare($queryGetTotalProduk);
         $stmtGetTotalProduk->execute([$id_keranjang]);
         $totalProdukSesudah = $stmtGetTotalProduk->fetchColumn();
 
-        // Hapus keranjang jika total_produk akhirnya 0
         if ($totalProdukSesudah == 0) {
-            $queryDeleteKeranjang = "DELETE FROM keranjang WHERE id = ?";
-            $stmtDeleteKeranjang = $pdo->prepare($queryDeleteKeranjang);
-            $stmtDeleteKeranjang->execute([$id_keranjang]);
+            // **Periksa apakah ada referensi di checkout terlebih dahulu**
+            $queryCheckCheckout = "SELECT COUNT(*) FROM checkout WHERE id_keranjang = ?";
+            $stmtCheckCheckout = $pdo->prepare($queryCheckCheckout);
+            $stmtCheckCheckout->execute([$id_keranjang]);
+            $checkoutCount = $stmtCheckCheckout->fetchColumn();
+
+            // Jika tidak ada referensi di checkout, baru bisa hapus keranjang
+            if ($checkoutCount == 0) {
+                $queryDeleteKeranjang = "DELETE FROM keranjang WHERE id = ?";
+                $stmtDeleteKeranjang = $pdo->prepare($queryDeleteKeranjang);
+                $stmtDeleteKeranjang->execute([$id_keranjang]);
+            } else {
+                echo json_encode([
+                    'success' => false,
+                    'error' => 'Tidak bisa menghapus keranjang yang masih memiliki referensi di checkout.'
+                ]);
+                $pdo->rollBack();
+                exit;
+            }
         }
+
 
         $pdo->commit();
 

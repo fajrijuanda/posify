@@ -105,8 +105,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // Insert ke tabel transaksi
             $queryTransaksi = "
-                INSERT INTO transaksi (id_pembayaran, nomor_order, waktu_transaksi, status)
-                VALUES (?, ?, NOW(), 'pending')";
+                INSERT INTO transaksi (id_pembayaran, nomor_order, waktu_transaksi, status,created_at)
+                VALUES (?, ?, NOW(), 'pending',NOW())";
             $stmtTransaksi = $pdo->prepare($queryTransaksi);
             $stmtTransaksi->execute([$id_pembayaran, $nomor_order]);
             $id_transaksi = $pdo->lastInsertId();

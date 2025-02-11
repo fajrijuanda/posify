@@ -18,13 +18,18 @@ if (!$userData) {
 
 $id_toko = $userData['id_toko']; // Ambil id_toko dari token JWT
 
-if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-    $id_transaksi = $_GET['id_transaksi'] ?? null;
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Ambil data input JSON
+    $inputJSON = file_get_contents("php://input");
+    $input = json_decode($inputJSON, true);
+
+    // Pastikan id_transaksi ada dalam input JSON
+    $id_transaksi = $input['id_transaksi'] ?? null;
 
     if (empty($id_transaksi)) {
         echo json_encode([
             'success' => false,
-            'error' => 'ID Transaksi diperlukan'
+            'error' => 'ID Transaksi diperlukan dalam JSON'
         ]);
         exit;
     }
@@ -38,19 +43,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                 c.id AS id_checkout,
                 c.subtotal,
                 c.total_harga,
-                c.metode_pengiriman
+                c.metode_pengiriman,
+                k.id_toko
             FROM transaksi t
             JOIN pembayaran p ON t.id_pembayaran = p.id
             JOIN checkout c ON p.id_checkout = c.id
+            JOIN keranjang k ON c.id_keranjang = k.id
             WHERE t.id = ?";
         $stmtTransaksi = $pdo->prepare($queryTransaksi);
         $stmtTransaksi->execute([$id_transaksi]);
         $transaksi = $stmtTransaksi->fetch(PDO::FETCH_ASSOC);
 
+        // Pastikan transaksi ditemukan dan id_toko sesuai dengan token
         if (!$transaksi) {
             echo json_encode([
                 'success' => false,
                 'error' => 'Transaksi tidak ditemukan'
+            ]);
+            exit;
+        }
+
+        if ($transaksi['id_toko'] != $id_toko) {
+            echo json_encode([
+                'success' => false,
+                'error' => 'Transaksi tidak ditemukan untuk toko ini'
             ]);
             exit;
         }

@@ -3,10 +3,9 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost:3306
--- Waktu pembuatan: 01 Feb 2025 pada 15.11
+-- Waktu pembuatan: 12 Feb 2025 pada 00.59
 -- Versi server: 10.11.10-MariaDB-cll-lve
 -- Versi PHP: 8.3.15
-
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
@@ -19,7 +18,7 @@ SET time_zone = "+00:00";
 /*!40101 SET NAMES utf8mb4 */;
 
 --
--- Database: `muhq7689_dbposify`
+-- Database: `db_posify`
 --
 
 -- --------------------------------------------------------
@@ -32,13 +31,16 @@ CREATE TABLE `checkout` (
   `id` int(11) NOT NULL,
   `id_keranjang` int(11) DEFAULT NULL,
   `id_voucher` int(11) DEFAULT NULL,
-  `id_pelanggan` int(10) DEFAULT NULL,
-  `metode_pengiriman` varchar(255) DEFAULT 'Ditempat',
-  `biaya_pengiriman` int(100) DEFAULT 0,
+  `id_pelanggan` int(11) NOT NULL,
+  `metode_pengiriman` varchar(255) DEFAULT NULL,
+  `biaya_pengiriman` decimal(10,2) DEFAULT NULL,
   `subtotal` decimal(10,2) DEFAULT NULL,
   `total_harga` decimal(10,2) DEFAULT NULL,
-  `status` enum('sementara','checkout') DEFAULT NULL
+  `status` enum('sementara','checkout') DEFAULT NULL,
+  `created_at` timestamp NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
 
 --
 -- Struktur dari tabel `keranjang`
@@ -47,7 +49,7 @@ CREATE TABLE `checkout` (
 CREATE TABLE `keranjang` (
   `id` int(11) NOT NULL,
   `id_toko` int(11) DEFAULT NULL,
-  `total_produk` int(11) DEFAULT 0
+  `total_produk` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -64,7 +66,6 @@ CREATE TABLE `langganantoko` (
   `tanggal_berakhir` date DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-
 -- --------------------------------------------------------
 
 --
@@ -76,8 +77,8 @@ CREATE TABLE `laporankeuangan` (
   `id_toko` int(11) DEFAULT NULL,
   `omset_penjualan` decimal(15,2) DEFAULT NULL,
   `biaya_komisi` decimal(15,2) DEFAULT NULL,
-  `total_diskon` decimal(15,2) DEFAULT NULL,
-  `total_bersih` decimal(15,2) DEFAULT NULL
+  `total_bersih` decimal(15,2) DEFAULT NULL,
+  `tanggal` timestamp NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -109,6 +110,15 @@ CREATE TABLE `paketlangganan` (
   `durasi` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+--
+-- Dumping data untuk tabel `paketlangganan`
+--
+
+INSERT INTO `paketlangganan` (`id`, `nama`, `deskripsi`, `harga`, `durasi`) VALUES
+(1, 'standard', 'lorem ipsum', 1000.00, 5),
+(2, 'premium', 'pakett bebass', 15000.00, 3);
+
+-- --------------------------------------------------------
 
 --
 -- Struktur dari tabel `pelanggan`
@@ -117,11 +127,11 @@ CREATE TABLE `paketlangganan` (
 CREATE TABLE `pelanggan` (
   `id` int(11) NOT NULL,
   `id_toko` int(11) DEFAULT NULL,
-  `nama_pelanggan` varchar(255) DEFAULT NULL,
+  `nama_pelanggan` text DEFAULT NULL,
   `nomor_telepon` varchar(20) DEFAULT NULL,
-  `email` text DEFAULT NULL
+  `email` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
 
 -- --------------------------------------------------------
 
@@ -132,10 +142,11 @@ CREATE TABLE `pelanggan` (
 CREATE TABLE `pembayaran` (
   `id` int(11) NOT NULL,
   `id_checkout` int(11) DEFAULT NULL,
-  `metode` enum('tunai','non-tunai','debit') DEFAULT NULL,
+  `metode` enum('tunai','non-tunai') DEFAULT NULL,
   `nominal` int(11) DEFAULT NULL,
-  `status` enum('pending','completed','failed') DEFAULT 'completed',
-  `waktu_pembayaran` datetime DEFAULT NULL
+  `status` enum('pending','completed','failed') DEFAULT NULL,
+  `waktu_pembayaran` datetime DEFAULT NULL,
+  `metode_pembayaran` enum('tunai','non-tunai','debit') NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -152,7 +163,8 @@ CREATE TABLE `produk` (
   `harga_jual` decimal(10,2) DEFAULT NULL,
   `deskripsi` text DEFAULT NULL,
   `gambar` text DEFAULT NULL,
-  `stok` int(11) DEFAULT NULL
+  `stok` int(11) DEFAULT NULL,
+  `created_at` timestamp NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -166,7 +178,9 @@ CREATE TABLE `produkkeranjang` (
   `id_keranjang` int(11) DEFAULT NULL,
   `id_produk` int(11) DEFAULT NULL,
   `kuantitas` int(11) DEFAULT NULL,
-  `harga_produk` decimal(10,2) DEFAULT NULL
+  `harga_produk` decimal(10,2) DEFAULT NULL,
+  `produk_terjual` int(11) NOT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -182,7 +196,6 @@ CREATE TABLE `sessions` (
   `expired_at` datetime DEFAULT NULL,
   `created_at` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
 -- --------------------------------------------------------
 
 --
@@ -210,9 +223,9 @@ CREATE TABLE `transaksi` (
   `id_pembayaran` int(11) DEFAULT NULL,
   `nomor_order` varchar(255) DEFAULT NULL,
   `waktu_transaksi` datetime DEFAULT NULL,
-  `status` enum('pending','completed','cancelled') DEFAULT 'completed'
+  `status` enum('pending','completed','cancelled') DEFAULT NULL,
+  `created_at` timestamp NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
 -- --------------------------------------------------------
 
 --
@@ -243,6 +256,13 @@ CREATE TABLE `users` (
   `reset_requested` tinyint(1) DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+--
+-- Dumping data untuk tabel `users`
+--
+
+INSERT INTO `users` (`id`, `name`, `email`, `password`, `role`, `reset_token`, `reset_token_expiry`, `is_active`, `reset_requested`) VALUES
+(1, 'Adminposify', 'admin@mail.com', '$2y$10$Tj7m81RbUz0ukK13HyTFmuFQHCv8xUknMsxAjW/CRfqxsl5DTIsea', 'Admin', NULL, NULL, 1, 0);
+
 -- --------------------------------------------------------
 
 --
@@ -253,8 +273,8 @@ CREATE TABLE `voucher` (
   `id` int(11) NOT NULL,
   `id_toko` int(11) DEFAULT NULL,
   `nama` varchar(255) DEFAULT NULL,
-  `nilai_diskon` int(100) DEFAULT NULL,
-  `minimal_belanja` int(100) DEFAULT NULL
+  `nilai_diskon` decimal(10,2) DEFAULT NULL,
+  `minimal_belanja` decimal(10,2) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
@@ -268,7 +288,7 @@ ALTER TABLE `checkout`
   ADD PRIMARY KEY (`id`),
   ADD KEY `id_keranjang` (`id_keranjang`),
   ADD KEY `id_voucher` (`id_voucher`),
-  ADD KEY `checkout_ibfk_3` (`id_pelanggan`);
+  ADD KEY `pelanggan_ibfk_2` (`id_pelanggan`);
 
 --
 -- Indeks untuk tabel `keranjang`
@@ -282,7 +302,8 @@ ALTER TABLE `keranjang`
 --
 ALTER TABLE `langganantoko`
   ADD PRIMARY KEY (`id`),
-  ADD KEY `id_toko` (`id_toko`);
+  ADD KEY `id_toko` (`id_toko`),
+  ADD KEY `langganan_ibfk_2` (`id_langganan`);
 
 --
 -- Indeks untuk tabel `laporankeuangan`
@@ -469,7 +490,7 @@ ALTER TABLE `transaksilaporan`
 -- AUTO_INCREMENT untuk tabel `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
 
 --
 -- AUTO_INCREMENT untuk tabel `voucher`
@@ -486,8 +507,8 @@ ALTER TABLE `voucher`
 --
 ALTER TABLE `checkout`
   ADD CONSTRAINT `checkout_ibfk_1` FOREIGN KEY (`id_keranjang`) REFERENCES `keranjang` (`id`),
-  ADD CONSTRAINT `checkout_ibfk_2` FOREIGN KEY (`id_voucher`) REFERENCES `voucher` (`id`),
-  ADD CONSTRAINT `checkout_ibfk_3` FOREIGN KEY (`id_pelanggan`) REFERENCES `pelanggan` (`id`);
+  ADD CONSTRAINT `pelanggan_ibfk_2` FOREIGN KEY (`id_pelanggan`) REFERENCES `pelanggan` (`id`),
+  ADD CONSTRAINT `vocher_ibfk_2` FOREIGN KEY (`id_voucher`) REFERENCES `voucher` (`id`);
 
 --
 -- Ketidakleluasaan untuk tabel `keranjang`
@@ -499,6 +520,7 @@ ALTER TABLE `keranjang`
 -- Ketidakleluasaan untuk tabel `langganantoko`
 --
 ALTER TABLE `langganantoko`
+  ADD CONSTRAINT `langganan_ibfk_2` FOREIGN KEY (`id_langganan`) REFERENCES `paketlangganan` (`id`),
   ADD CONSTRAINT `langganantoko_ibfk_1` FOREIGN KEY (`id_toko`) REFERENCES `toko` (`id`);
 
 --

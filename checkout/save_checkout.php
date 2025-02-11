@@ -114,8 +114,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             // Insert data baru jika belum ada
             $queryInsert = "
-                INSERT INTO checkout (id_keranjang, id_pelanggan, subtotal, total_harga, metode_pengiriman, id_voucher, status)
-                VALUES (?, ?, ?, ?, ?, ?, 'sementara')";
+                INSERT INTO checkout (id_keranjang, id_pelanggan, subtotal, total_harga, metode_pengiriman, id_voucher, status,created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'sementara',NOW())";
             $stmtInsert = $pdo->prepare($queryInsert);
             $stmtInsert->execute([$id_keranjang, $id_pelanggan, $subtotal, $total_harga, $metode_pengiriman, $id_voucher]);
 

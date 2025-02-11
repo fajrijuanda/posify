@@ -63,8 +63,8 @@ switch (true) {
         break;
 
     // Dashboard
-    case preg_match('/^\/dashboard\/detail_produk$/', $path):
-        include('./dashboard/detail_produk.php');
+    case preg_match('/^\/dashboard\/dashboard-admin$/', $path):
+        include('./dashboard/dashboard-admin.php');
         break;
     case preg_match('/^\/dashboard\/dashboard-user$/', $path):
         include('./dashboard/dashboard-user.php');
@@ -99,6 +99,9 @@ switch (true) {
         break;
     case preg_match('/^\/laporan\/get_invoice_detail$/', $path):
         include('./laporan/get_invoice_detail.php');
+        break;
+    case preg_match('/^\/laporan\/get-laporan-admin$/', $path):
+        include('./laporan/get-laporan-admin.php');
         break;
 
     // Pelanggan
@@ -149,6 +152,12 @@ switch (true) {
         break;
     case preg_match('/^\/toko\/upgrade_premium$/', $path):
         include('./toko/upgrade_premium.php');
+        break;
+    case preg_match('/^\/toko\/get-premium$/', $path):
+        include('./toko/get-premium.php');
+        break;
+    case preg_match('/^\/toko\/get-standar$/', $path):
+        include('./toko/get-standar.php');
         break;
 
     // Transaksi

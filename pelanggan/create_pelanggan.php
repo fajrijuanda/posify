@@ -60,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     try {
         // INSERT DATA PELANGGAN KE DATABASE
-        $query = "INSERT INTO pelanggan (id_toko, nomor_telepon, nama_pelanggan, email) VALUES (?, ?, ?, ?)";
+        $query = "INSERT INTO pelanggan (id_toko, nomor_telepon, nama_pelanggan, email,created_at) VALUES (?, ?, ?, ?,NOW())";
         $stmt = $pdo->prepare($query);
         $stmt->execute([$id_toko, $nomor_telepon, $nama_pelanggan, $email]);
 
