@@ -159,6 +159,9 @@ switch (true) {
     case preg_match('/^\/toko\/get-standar$/', $path):
         include('./toko/get-standar.php');
         break;
+    case preg_match('/^\/toko\/atur-admin$/', $path):
+        include('./toko/atur-admin.php');
+        break;
 
     // Transaksi
     case preg_match('/^\/transaksi\/print_struk$/', $path):

@@ -45,15 +45,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $totalProdukTerjual = $stmtTotalProdukTerjual->fetchAll(PDO::FETCH_ASSOC);
 
         // ✅ Ambil total pesanan (orders) yang sudah dilakukan checkout per bulan
-        $queryTotalOrders = "
-            SELECT COUNT(*) AS total_orders, 
-                   DATE_FORMAT(t.created_at, '%Y-%m') AS bulan
-            FROM transaksi t
-            WHERE t.status = 'completed'
-            GROUP BY bulan
-            ORDER BY bulan DESC";
+        $queryTotalOrders = "SELECT COUNT(*) AS total_orders FROM transaksi WHERE status = 'completed'";
         $stmtTotalOrders = $pdo->query($queryTotalOrders);
-        $totalOrders = $stmtTotalOrders->fetchAll(PDO::FETCH_ASSOC);
+        $totalOrders = $stmtTotalOrders->fetchColumn();
 
         // ✅ Ambil penghasilan bulanan, hanya yang memiliki tanggal valid
         $queryPendapatanBulanan = "
