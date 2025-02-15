@@ -74,6 +74,9 @@ switch (true) {
     case preg_match('/^\/kasir\/add_to_cart$/', $path):
         include('./kasir/add_to_cart.php');
         break;
+    case preg_match('/^\/kasir\/add_to_cart-bundling$/', $path):
+        include('./kasir/add_to_cart-bundling.php');
+        break;
     case preg_match('/^\/kasir\/delete_to_cart$/', $path):
         include('./kasir/delete_to_cart.php');
         break;
@@ -138,6 +141,9 @@ switch (true) {
         break;
     case preg_match('/^\/produk\/produk_terjual$/', $path):
         include('./produk/produk_terjual.php');
+        break;
+    case preg_match('/^\/produk\/bundling$/', $path):
+        include('./produk/bundling.php');
         break;
 
     // Toko
