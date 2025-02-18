@@ -95,6 +95,9 @@ switch (true) {
     case preg_match('/^\/kasir\/checkout$/', $path):
         include('./kasir/checkout.php');
         break;
+    case preg_match('/^\/kasir\/get-cart-bundling$/', $path):
+        include('./kasir/get-cart-bundling.php');
+        break;
 
     // Laporan
     case preg_match('/^\/laporan\/get_laporan_keuangan$/', $path):
@@ -144,6 +147,9 @@ switch (true) {
         break;
     case preg_match('/^\/produk\/bundling$/', $path):
         include('./produk/bundling.php');
+        break;
+    case preg_match('/^\/produk\/get-bundling$/', $path):
+        include('./produk/get-bundling.php');
         break;
 
     // Toko

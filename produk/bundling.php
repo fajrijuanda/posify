@@ -1,4 +1,4 @@
-<?php
+<?php 
 header('Content-Type: application/json');
 include('../config/cors.php');
 include("../config/dbconnection.php");
@@ -16,9 +16,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Ambil input JSON
     $inputJSON = file_get_contents("php://input");
     $input = json_decode($inputJSON, true);
-
-    // Debugging: Cek JSON yang diterima
-    error_log("JSON Input: " . json_encode($input));
 
     if (!is_array($input)) {
         echo json_encode([
@@ -43,7 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Hitung total jumlah produk dalam bundling
         $total_jumlah = array_sum($jumlah_list);
 
-        // Simpan bundling ke database
+        // Simpan bundling ke database tanpa harga_jual dan harga_modal
         $query = "INSERT INTO bundling (id_toko, nama_bundling, total_jumlah) VALUES (?, ?, ?)";
         $stmt = $pdo->prepare($query);
         $stmt->execute([$id_toko, $nama_bundling, $total_jumlah]);
@@ -53,15 +50,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // Ambil stok dari produk yang dipilih
         $placeholders = implode(',', array_fill(0, count($produk_list), '?'));
-        $query = "SELECT id, stok FROM produk WHERE id IN ($placeholders)";
+        $query = "SELECT id, stok, harga_jual, harga_modal FROM produk WHERE id IN ($placeholders)";
         $stmt = $pdo->prepare($query);
         $stmt->execute($produk_list);
         $produk_data = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // Buat array stok produk
+        // Buat array stok dan harga produk
         $stok_produk = [];
+        $harga_jual_tertinggi = 0;
+        $harga_modal_terendah = PHP_INT_MAX;
+
         foreach ($produk_data as $data) {
             $stok_produk[$data['id']] = $data['stok'];
+            if ($data['harga_jual'] > $harga_jual_tertinggi) {
+                $harga_jual_tertinggi = $data['harga_jual'];
+            }
+            if ($data['harga_modal'] < $harga_modal_terendah) {
+                $harga_modal_terendah = $data['harga_modal'];
+            }
         }
 
         // Cek stok sebelum memasukkan ke bundling
@@ -78,10 +84,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         foreach ($produk_list as $index => $id_produk) {
             $jumlah = $jumlah_list[$index];
 
-            // Simpan ke tabel `bundling_produk`
-            $query = "INSERT INTO bundling_produk (id_bundling, id_produk, jumlah) VALUES (?, ?, ?)";
+            // Ambil harga jual & modal dari produk
+            $query = "SELECT harga_jual, harga_modal FROM produk WHERE id = ?";
             $stmt = $pdo->prepare($query);
-            $stmt->execute([$id_bundling, $id_produk, $jumlah]);
+            $stmt->execute([$id_produk]);
+            $harga_data = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            $harga_jual = $harga_data['harga_jual'] ?? 0;
+            $harga_modal = $harga_data['harga_modal'] ?? 0;
+
+            // Simpan ke tabel `bundling_produk`
+            $query = "INSERT INTO bundling_produk (id_bundling, id_produk, jumlah, harga_jual, harga_modal) VALUES (?, ?, ?, ?, ?)";
+            $stmt = $pdo->prepare($query);
+            $stmt->execute([$id_bundling, $id_produk, $jumlah, $harga_jual, $harga_modal]);
 
             // Kurangi stok produk
             $query = "UPDATE produk SET stok = stok - ? WHERE id = ?";
@@ -89,7 +104,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([$jumlah, $id_produk]);
         }
 
-        echo json_encode(['success' => true, 'message' => 'Bundling berhasil dibuat', 'id_bundling' => $id_bundling, 'total_jumlah' => $total_jumlah]);
+        echo json_encode([
+            'success' => true, 
+            'message' => 'Bundling berhasil dibuat', 
+            'id_bundling' => $id_bundling, 
+            'total_jumlah' => $total_jumlah
+        ]);
+
     } catch (PDOException $e) {
         echo json_encode(['success' => false, 'error' => 'Database error: ' . $e->getMessage()]);
     }

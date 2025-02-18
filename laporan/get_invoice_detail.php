@@ -1,147 +1,141 @@
 <?php
 
 header('Content-Type: application/json');
+header('Access-Control-Allow-Methods: POST, OPTIONS');
 include('../config/cors.php');
 include("../config/dbconnection.php");
 include('../middlewares/auth_middleware.php');
-include('../config/helpers.php');
 
 $dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/../');
 $dotenv->load();
-$baseURL = $_ENV['APP_URL'] ?? 'https://posifyapi.muhsalfazi.my.id';
+$baseURL = $_ENV['APP_URL'] ?? 'http://posify.test';
 
-// ✅ Validasi token JWT
-$authResult = validateToken();
-if (!is_array($authResult) || !isset($authResult['user_id'], $authResult['role'])) {
-    http_response_code(401);
+// ✅ Ambil data dari token JWT
+$userData = validateToken();
+
+if (!$userData) {
     echo json_encode(['success' => false, 'error' => 'Token tidak valid atau sudah expired']);
     exit;
 }
 
-// ✅ Cek apakah pengguna adalah admin
-if ($authResult['role'] !== 'Admin') {
-    http_response_code(403);
-    echo json_encode(['success' => false, 'error' => 'Akses ditolak']);
-    exit;
-}
+$id_toko = $userData['id_toko']; // Ambil ID toko langsung dari token JWT
 
-// ✅ Fungsi untuk mengisi data bulan yang kosong dengan nilai 0
-function fillMissingMonths($data, $key)
-{
-    $allMonths = [];
-    for ($i = 1; $i <= 12; $i++) {
-        $month = date('Y-m', strtotime(date('Y') . "-$i-01"));
-        $allMonths[$month] = ["bulan" => $month, $key => 0];
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Ambil data input JSON
+    $inputJSON = file_get_contents("php://input");
+    $input = json_decode($inputJSON, true);
+
+    // Pastikan id_transaksi ada dalam input JSON
+    $id_transaksi = $input['id_transaksi'] ?? null;
+
+    if (empty($id_transaksi)) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'ID Transaksi diperlukan dalam JSON'
+        ]);
+        exit;
     }
 
-    foreach ($data as $row) {
-        $allMonths[$row['bulan']] = $row;
-    }
-
-    return array_values($allMonths); // Konversi kembali ke array numerik
-}
-
-if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     try {
-        // ✅ Ambil total pendapatan semua toko
-        $queryPendapatan = "SELECT COALESCE(SUM(biaya_komisi), 0) AS total_pendapatan FROM laporankeuangan";
-        $stmtPendapatan = $pdo->query($queryPendapatan);
-        $totalPendapatan = $stmtPendapatan->fetchColumn();
-
-        // ✅ Ambil total produk yang terjual dari tabel checkout per bulan
-        $queryTotalProdukTerjual = "
-            SELECT COUNT(DISTINCT pk.id_produk) AS total_produk_terjual,
-                   DATE_FORMAT(c.created_at, '%Y-%m') AS bulan
-            FROM checkout c
-            JOIN produkkeranjang pk ON c.id_keranjang = pk.id_keranjang
-            WHERE c.status = 'checkout'
-            GROUP BY bulan
-            ORDER BY bulan DESC";
-        $stmtTotalProdukTerjual = $pdo->query($queryTotalProdukTerjual);
-        $totalProdukTerjual = fillMissingMonths($stmtTotalProdukTerjual->fetchAll(PDO::FETCH_ASSOC), "total_produk_terjual");
-
-        // ✅ Ambil total pesanan (orders) tanpa format bulanan
-        $queryTotalOrders = "SELECT COUNT(*) AS total_orders FROM transaksi WHERE status = 'completed'";
-        $stmtTotalOrders = $pdo->query($queryTotalOrders);
-        $totalOrders = $stmtTotalOrders->fetchColumn(); // Langsung ambil angka total
-
-        // ✅ Ambil total sales per bulan
-        $querySales = "
-            SELECT COUNT(*) AS total_sales, 
-                   DATE_FORMAT(created_at, '%Y-%m') AS bulan
-            FROM transaksi
-            WHERE status = 'completed'
-            GROUP BY bulan
-            ORDER BY bulan DESC";
-        $stmtSales = $pdo->query($querySales);
-        $totalSales = fillMissingMonths($stmtSales->fetchAll(PDO::FETCH_ASSOC), "total_sales");
-
-        // ✅ Ambil total visitors (pelanggan) per bulan
-        $queryVisitors = "
-            SELECT COUNT(*) AS total_visitors, 
-                   DATE_FORMAT(created_at, '%Y-%m') AS bulan
-            FROM pelanggan
-            GROUP BY bulan
-            ORDER BY bulan DESC";
-        $stmtVisitors = $pdo->query($queryVisitors);
-        $totalVisitors = fillMissingMonths($stmtVisitors->fetchAll(PDO::FETCH_ASSOC), "total_visitors");
-
-        // ✅ Ambil total products
-        $queryProducts = "SELECT COUNT(*) AS total_products FROM produk";
-        $stmtProducts = $pdo->query($queryProducts);
-        $totalProducts = $stmtProducts->fetchColumn();
-
-        // ✅ Ambil Toko Paling Laris berdasarkan total omset tertinggi
-        $queryTokoLaris = "
+        // 🔹 **Ambil detail transaksi dan id_checkout**
+        $queryTransaksi = "
             SELECT 
-                t.id AS id_toko,
-                t.nama_toko, 
-                t.logo, 
-                t.alamat,
-                COALESCE(SUM(lk.omset_penjualan), 0) AS total_omset
-            FROM toko t
-            JOIN laporankeuangan lk ON t.id = lk.id_toko
-            GROUP BY t.id, t.nama_toko, t.logo, t.alamat
-            ORDER BY total_omset DESC
-            LIMIT 3"; // Ambil 3 toko terlaris
+                t.nomor_order,
+                t.waktu_transaksi,
+                c.id AS id_checkout,
+                c.subtotal,
+                c.total_harga,
+                c.metode_pengiriman
+            FROM transaksi t
+            JOIN pembayaran p ON t.id_pembayaran = p.id
+            JOIN checkout c ON p.id_checkout = c.id
+            JOIN keranjang k ON c.id_keranjang = k.id
+            WHERE t.id = ? AND k.id_toko = ?";
+        $stmtTransaksi = $pdo->prepare($queryTransaksi);
+        $stmtTransaksi->execute([$id_transaksi, $id_toko]);
+        $transaksi = $stmtTransaksi->fetch(PDO::FETCH_ASSOC);
 
-        $stmtTokoLaris = $pdo->query($queryTokoLaris);
-        $tokoLaris = $stmtTokoLaris->fetchAll(PDO::FETCH_ASSOC); // Mengambil semua hasilnya
-
-        // Format URL gambar logo toko
-        foreach ($tokoLaris as &$toko) {
-            if (!empty($toko['logo'])) {
-                $toko['logo_url'] = $baseURL . '/' . $toko['logo'];
-            } else {
-                $toko['logo_url'] = null; // Jika tidak ada logo
-            }
+        // 🔹 **Pastikan transaksi ditemukan untuk toko dari token**
+        if (!$transaksi) {
+            echo json_encode([
+                'success' => false,
+                'error' => 'Transaksi tidak ditemukan atau tidak sesuai dengan toko ini'
+            ]);
+            exit;
         }
-        
-    // ✅ Ambil penghasilan bulanan, hanya yang memiliki tanggal valid
-        $queryPendapatanBulanan = "
-            SELECT DATE_FORMAT(tanggal, '%Y-%m') AS bulan, COALESCE(SUM(biaya_komisi), 0) AS total_pendapatan
-            FROM laporankeuangan
-            WHERE tanggal IS NOT NULL
-            GROUP BY bulan
-            ORDER BY bulan ASC";
-        $stmtPendapatanBulanan = $pdo->query($queryPendapatanBulanan);
-        $pendapatanBulanan = $stmtPendapatanBulanan->fetchAll(PDO::FETCH_ASSOC);
 
-        // ✅ Format response JSON
+        $id_checkout = $transaksi['id_checkout'];
+
+        // 🔹 **Ambil produk biasa yang ada dalam transaksi**
+        $queryProduk = "
+            SELECT 
+                p.nama_produk,
+                p.harga_modal,
+                p.harga_jual,
+                p.deskripsi,
+                pk.kuantitas,
+                p.gambar,
+                CONCAT(?, '/', p.gambar) AS gambar_url
+            FROM produk p
+            JOIN produkkeranjang pk ON p.id = pk.id_produk
+            WHERE pk.id_keranjang = (SELECT id_keranjang FROM checkout WHERE id = ?) 
+              AND pk.id_bundling IS NULL";
+        $stmtProduk = $pdo->prepare($queryProduk);
+        $stmtProduk->execute([$baseURL, $id_checkout]);
+        $produk = $stmtProduk->fetchAll(PDO::FETCH_ASSOC);
+
+        // 🔹 **Ambil satu produk dengan harga jual tertinggi dalam bundling**
+        $queryBundling = "
+            SELECT 
+                b.id AS id_bundling,
+                b.nama_bundling,
+                p.id AS id_produk,
+                p.nama_produk,
+                p.harga_jual,
+                p.gambar,
+                CONCAT(?, '/', p.gambar) AS gambar_url
+            FROM bundling b
+            JOIN bundling_produk bp ON b.id = bp.id_bundling
+            JOIN produk p ON bp.id_produk = p.id
+            JOIN produkkeranjang pk ON pk.id_bundling = b.id
+            WHERE pk.id_keranjang = (SELECT id_keranjang FROM checkout WHERE id = ?)
+            ORDER BY p.harga_jual DESC
+            LIMIT 1";
+        $stmtBundling = $pdo->prepare($queryBundling);
+        $stmtBundling->execute([$baseURL, $id_checkout]);
+        $produkBundling = $stmtBundling->fetch(PDO::FETCH_ASSOC);
+
+        // 🔹 **Ambil informasi laporan keuangan berdasarkan id_toko dari JWT**
+        $queryLaporan = "
+            SELECT 
+                l.omset_penjualan,
+                l.biaya_komisi,
+                l.total_bersih
+            FROM laporankeuangan l
+            WHERE l.id_toko = ?";
+        $stmtLaporan = $pdo->prepare($queryLaporan);
+        $stmtLaporan->execute([$id_toko]);
+        $laporan = $stmtLaporan->fetch(PDO::FETCH_ASSOC);
+
+        // **Pastikan laporan tidak kosong**
+        if (!$laporan) {
+            $laporan = [
+                'omset_penjualan' => 0,
+                'biaya_komisi' => 0,
+                'total_bersih' => 0
+            ];
+        }
+
+        // 🔹 **Hasilkan respon JSON**
         echo json_encode([
             'success' => true,
             'data' => [
-                'revenue' => $totalPendapatan,
-                'orders' => $totalOrders, 
-                'total_products' => $totalProducts,
-               'monthly_earning' => !empty($pendapatanBulanan) ? (float) $pendapatanBulanan[0]['total_pendapatan'] : 0.0,
-                'total_sales' => $totalSales,
-                'total_visitors' => $totalVisitors,
-                'sold_products' => $totalProdukTerjual,
-                'top_selling_store' => $tokoLaris
+                'transaksi' => $transaksi,
+                'produk' => $produk,
+                'produk_bundling' => $produkBundling ?: null, // Jika tidak ada bundling, kembalikan null
+                'laporan' => $laporan
             ]
         ]);
-
     } catch (PDOException $e) {
         echo json_encode([
             'success' => false,
@@ -154,5 +148,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         'error' => 'Invalid request method'
     ]);
 }
-
 ?>

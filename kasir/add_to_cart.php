@@ -27,12 +27,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $input = json_decode(file_get_contents("php://input"), true);
 
     $id_produk = $input['id_produk'] ?? null;
+    $id_bundling = $input['id_bundling'] ?? null;
     $jumlah = $input['jumlah'] ?? 1;
 
-    if (empty($id_produk) || empty($id_toko)) {
+    // **Validasi: Pastikan salah satu dari `id_produk` atau `id_bundling` harus ada**
+    if (empty($id_produk) && empty($id_bundling)) {
         echo json_encode([
             'success' => false,
-            'error' => 'ID Produk dan ID Toko diperlukan'
+            'error' => 'ID Produk atau ID Bundling diperlukan'
         ]);
         exit;
     }
@@ -40,7 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $pdo->beginTransaction();
 
-        // 🔹 **Ambil id_keranjang berdasarkan id_toko**
+        // 🔹 **Ambil ID keranjang berdasarkan ID toko**
         $queryKeranjang = "SELECT id FROM keranjang WHERE id_toko = ?";
         $stmtKeranjang = $pdo->prepare($queryKeranjang);
         $stmtKeranjang->execute([$id_toko]);
@@ -56,91 +58,104 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $id_keranjang = $resultKeranjang['id'];
 
-        // 🔹 **Cek apakah ada transaksi yang masih pending berdasarkan id_keranjang**
-        $queryCheckout = "SELECT id FROM checkout WHERE id_keranjang = ?";
-        $stmtCheckout = $pdo->prepare($queryCheckout);
-        $stmtCheckout->execute([$id_keranjang]);
-        $checkout = $stmtCheckout->fetch(PDO::FETCH_ASSOC);
+        // **Jika yang ditambahkan adalah produk satuan**
+        if ($id_produk) {
+            // 🔹 **Ambil harga produk dan stok**
+            $queryHarga = "SELECT harga_jual, stok FROM produk WHERE id = ?";
+            $stmtHarga = $pdo->prepare($queryHarga);
+            $stmtHarga->execute([$id_produk]);
+            $resultHarga = $stmtHarga->fetch(PDO::FETCH_ASSOC);
 
-        if ($checkout) {
-            $id_checkout = $checkout['id'];
-
-            // 🔹 **Cek status pembayaran berdasarkan id_checkout**
-            $queryPembayaran = "SELECT status FROM pembayaran WHERE id_checkout = ? ORDER BY id DESC LIMIT 1";
-            $stmtPembayaran = $pdo->prepare($queryPembayaran);
-            $stmtPembayaran->execute([$id_checkout]);
-            $pembayaran = $stmtPembayaran->fetch(PDO::FETCH_ASSOC);
-
-            if ($pembayaran && $pembayaran['status'] === 'pending') {
+            if (!$resultHarga) {
                 echo json_encode([
                     'success' => false,
-                    'error' => 'Transaksi belum selesai, masih dalam status pending.'
+                    'error' => 'Produk tidak ditemukan dalam database'
                 ]);
+                $pdo->rollBack();
                 exit;
             }
 
-            if ($pembayaran && $pembayaran['status'] === 'completed') {
-                // 🔹 **Jika transaksi selesai, kembalikan deleted_at ke NULL di produkkeranjang**
-                $queryRestoreProdukKeranjang = "UPDATE produkkeranjang SET deleted_at = NULL WHERE id_keranjang = ?";
-                $stmtRestoreProdukKeranjang = $pdo->prepare($queryRestoreProdukKeranjang);
-                $stmtRestoreProdukKeranjang->execute([$id_keranjang]);
+            $harga_produk = $resultHarga['harga_jual'];
+            $stok_produk = $resultHarga['stok'];
+
+            // 🔹 **Periksa stok**
+            if ($stok_produk < $jumlah) {
+                echo json_encode([
+                    'success' => false,
+                    'error' => 'Stok produk tidak mencukupi'
+                ]);
+                $pdo->rollBack();
+                exit;
+            }
+
+            // 🔹 **Cek apakah produk sudah ada di keranjang**
+            $queryCheck = "SELECT id, kuantitas FROM produkkeranjang WHERE id_keranjang = ? AND id_produk = ?";
+            $stmtCheck = $pdo->prepare($queryCheck);
+            $stmtCheck->execute([$id_keranjang, $id_produk]);
+            $resultCheck = $stmtCheck->fetch(PDO::FETCH_ASSOC);
+
+            if ($resultCheck) {
+                // 🔹 **Jika produk sudah ada, update kuantitas**
+                $newQuantity = $resultCheck['kuantitas'] + $jumlah;
+                $queryUpdate = "UPDATE produkkeranjang SET kuantitas = ?, deleted_at = NULL WHERE id = ?";
+                $stmtUpdate = $pdo->prepare($queryUpdate);
+                $stmtUpdate->execute([$newQuantity, $resultCheck['id']]);
+            } else {
+                // 🔹 **Jika produk belum ada, tambahkan ke produkkeranjang**
+                $queryInsert = "INSERT INTO produkkeranjang (id_keranjang, id_produk, kuantitas, harga_produk, deleted_at) VALUES (?, ?, ?, ?, NULL)";
+                $stmtInsert = $pdo->prepare($queryInsert);
+                $stmtInsert->execute([$id_keranjang, $id_produk, $jumlah, $harga_produk]);
             }
         }
 
-        // 🔹 **Ambil harga produk**
-        $queryHarga = "SELECT harga_jual FROM produk WHERE id = ?";
-        $stmtHarga = $pdo->prepare($queryHarga);
-        $stmtHarga->execute([$id_produk]);
-        $resultHarga = $stmtHarga->fetch(PDO::FETCH_ASSOC);
+        // **Jika yang ditambahkan adalah bundling**
+        if ($id_bundling) {
+            // 🔹 **Ambil harga jual tertinggi dari produk dalam bundling**
+            $queryHargaTertinggi = "
+                SELECT MAX(p.harga_jual) AS harga_tertinggi
+                FROM bundling_produk bp
+                JOIN produk p ON bp.id_produk = p.id
+                WHERE bp.id_bundling = ?";
+            $stmtHargaTertinggi = $pdo->prepare($queryHargaTertinggi);
+            $stmtHargaTertinggi->execute([$id_bundling]);
+            $resultHargaTertinggi = $stmtHargaTertinggi->fetch(PDO::FETCH_ASSOC);
 
-        if (!$resultHarga) {
-            echo json_encode([
-                'success' => false,
-                'error' => 'Produk tidak ditemukan dalam database'
-            ]);
-            $pdo->rollBack();
-            exit;
+            if (!$resultHargaTertinggi || $resultHargaTertinggi['harga_tertinggi'] === null) {
+                echo json_encode([
+                    'success' => false,
+                    'error' => 'Harga tertinggi tidak ditemukan'
+                ]);
+                $pdo->rollBack();
+                exit;
+            }
+
+            $harga_bundling = $resultHargaTertinggi['harga_tertinggi'];
+
+            // 🔹 **Cek apakah bundling sudah ada di produkkeranjang**
+            $queryCheck = "SELECT id, kuantitas FROM produkkeranjang WHERE id_keranjang = ? AND id_bundling = ?";
+            $stmtCheck = $pdo->prepare($queryCheck);
+            $stmtCheck->execute([$id_keranjang, $id_bundling]);
+            $resultCheck = $stmtCheck->fetch(PDO::FETCH_ASSOC);
+
+            if ($resultCheck) {
+                // 🔹 **Jika bundling sudah ada, update kuantitas**
+                $newQuantity = $resultCheck['kuantitas'] + $jumlah;
+                $queryUpdate = "UPDATE produkkeranjang SET kuantitas = ?, deleted_at = NULL WHERE id = ?";
+                $stmtUpdate = $pdo->prepare($queryUpdate);
+                $stmtUpdate->execute([$newQuantity, $resultCheck['id']]);
+            } else {
+                // 🔹 **Jika bundling belum ada, tambahkan ke produkkeranjang**
+                $queryInsert = "INSERT INTO produkkeranjang (id_keranjang, id_bundling, kuantitas, harga_produk, deleted_at) VALUES (?, ?, ?, ?, NULL)";
+                $stmtInsert = $pdo->prepare($queryInsert);
+                $stmtInsert->execute([$id_keranjang, $id_bundling, $jumlah, $harga_bundling]);
+            }
         }
-
-        $harga_produk = $resultHarga['harga_jual'];
-
-        // 🔹 **Cek apakah produk sudah ada di produkkeranjang**
-        $queryCheck = "SELECT id, kuantitas FROM produkkeranjang WHERE id_keranjang = ? AND id_produk = ?";
-        $stmtCheck = $pdo->prepare($queryCheck);
-        $stmtCheck->execute([$id_keranjang, $id_produk]);
-        $resultCheck = $stmtCheck->fetch(PDO::FETCH_ASSOC);
-
-        if ($resultCheck) {
-            // 🔹 **Jika produk sudah ada, update kuantitas dan deleted_at**
-            $newQuantity = $resultCheck['kuantitas'] + $jumlah;
-            $queryUpdate = "UPDATE produkkeranjang SET kuantitas = ?, deleted_at = NULL WHERE id = ?";
-            $stmtUpdate = $pdo->prepare($queryUpdate);
-            $stmtUpdate->execute([$newQuantity, $resultCheck['id']]);
-        } else {
-            // 🔹 **Jika produk belum ada, tambahkan ke produkkeranjang**
-            $queryInsert = "INSERT INTO produkkeranjang (id_keranjang, id_produk, kuantitas, harga_produk, deleted_at) VALUES (?, ?, ?, ?, NULL)";
-            $stmtInsert = $pdo->prepare($queryInsert);
-            $stmtInsert->execute([$id_keranjang, $id_produk, $jumlah, $harga_produk]);
-        }
-
-        // 🔹 **Hitung total produk dalam keranjang**
-        $queryTotalProduk = "SELECT SUM(kuantitas) AS total_produk FROM produkkeranjang WHERE id_keranjang = ?";
-        $stmtTotalProduk = $pdo->prepare($queryTotalProduk);
-        $stmtTotalProduk->execute([$id_keranjang]);
-        $resultTotalProduk = $stmtTotalProduk->fetch(PDO::FETCH_ASSOC);
-        $total_produk = $resultTotalProduk['total_produk'] ?? 0;
-
-        // 🔹 **Update total produk di keranjang**
-        $queryUpdateTotal = "UPDATE keranjang SET total_produk = ? WHERE id = ?";
-        $stmtUpdateTotal = $pdo->prepare($queryUpdateTotal);
-        $stmtUpdateTotal->execute([$total_produk, $id_keranjang]);
 
         $pdo->commit();
 
         echo json_encode([
             'success' => true,
-            'message' => 'Produk berhasil ditambahkan ke keranjang',
-            'total_produk' => $total_produk
+            'message' => 'Produk/Bundling berhasil ditambahkan ke keranjang'
         ]);
     } catch (PDOException $e) {
         $pdo->rollBack();
