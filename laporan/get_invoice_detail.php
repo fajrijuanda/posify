@@ -67,30 +67,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id_checkout = $transaksi['id_checkout'];
 
         // 📦 **Ambil produk biasa yang ada dalam transaksi**
-        $queryProduk = "
-            SELECT 
-                p.nama_produk,
-                p.harga_modal,
-                p.harga_jual,
-                p.deskripsi,
-                pk.kuantitas,
-                p.gambar,
-                CONCAT(?, '/', p.gambar) AS gambar_url
-            FROM produk p
-            JOIN produkkeranjang pk ON p.id = pk.id_produk
-            WHERE pk.id_keranjang = (SELECT id_keranjang FROM checkout WHERE id = ?) 
-              AND pk.id_bundling IS NULL";
-        $stmtProduk = $pdo->prepare($queryProduk);
-        $stmtProduk->execute([$baseURL, $id_checkout]);
-        $produk = $stmtProduk->fetchAll(PDO::FETCH_ASSOC);
+      $queryProduk = "
+    SELECT 
+        p.nama_produk,
+        p.harga_modal,
+        p.harga_jual,
+        p.deskripsi,
+        pk.kuantitas,
+        p.gambar,
+        CONCAT(?, '/', p.gambar) AS gambar_url,
+        (p.harga_modal * pk.kuantitas) AS total_harga_modal
+    FROM produk p
+    JOIN produkkeranjang pk ON p.id = pk.id_produk
+    WHERE pk.id_keranjang = (SELECT id_keranjang FROM checkout WHERE id = ?) 
+      AND pk.id_bundling IS NULL";
+$stmtProduk = $pdo->prepare($queryProduk);
+$stmtProduk->execute([$baseURL, $id_checkout]);
+$produk = $stmtProduk->fetchAll(PDO::FETCH_ASSOC);
 
-        // 🎁 **Ambil satu produk dengan harga jual tertinggi dalam bundling**
-        $queryBundling = "
+// **Hitung Total Harga Modal Produk Biasa**
+$total_harga_modal_produk = array_sum(array_column($produk, 'total_harga_modal'));
+
+// 🎁 **Ambil satu produk dengan harga jual tertinggi dalam bundling**
+$queryBundling = "
     SELECT 
         b.id AS id_bundling,
         b.nama_bundling,
         MAX(p.harga_jual) AS harga_jual,
-        SUM(p.harga_modal) AS total_harga_modal,
         (SELECT p.nama_produk FROM produk p 
          JOIN bundling_produk bp ON p.id = bp.id_produk 
          WHERE bp.id_bundling = b.id 
@@ -98,7 +101,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         (SELECT p.gambar FROM produk p 
          JOIN bundling_produk bp ON p.id = bp.id_produk 
          WHERE bp.id_bundling = b.id 
-         ORDER BY p.harga_jual DESC LIMIT 1) AS gambar_tertinggi
+         ORDER BY p.harga_jual DESC LIMIT 1) AS gambar_tertinggi,
+        SUM(p.harga_modal * pk.kuantitas) AS total_harga_modal_bundling
     FROM bundling b
     JOIN bundling_produk bp ON b.id = bp.id_bundling
     JOIN produk p ON bp.id_produk = p.id
@@ -106,14 +110,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     WHERE pk.id_keranjang = (SELECT id_keranjang FROM checkout WHERE id = ?)
     GROUP BY b.id, b.nama_bundling
     LIMIT 1";
+$stmtBundling = $pdo->prepare($queryBundling);
+$stmtBundling->execute([$id_checkout]);
+$bundling = $stmtBundling->fetch(PDO::FETCH_ASSOC);
 
-        $stmtBundling = $pdo->prepare($queryBundling);
-        $stmtBundling->execute([$id_checkout]);
-        $bundling = $stmtBundling->fetch(PDO::FETCH_ASSOC);
+// Jika tidak ada produk bundling, total harga modalnya 0
+$total_harga_modal_bundling = $bundling['total_harga_modal_bundling'] ?? 0;
+
+// **Total Harga Modal Keseluruhan**
+$total_harga_modal = $total_harga_modal_produk + $total_harga_modal_bundling;
+
 
         if ($bundling) {
             $bundling['harga_jual'] = floatval($bundling['harga_jual']);
-            $bundling['total_harga_modal'] = floatval($bundling['total_harga_modal']);
             $bundling['gambar_url'] = !empty($bundling['gambar_tertinggi']) ? rtrim($baseURL, '/') . '/' . ltrim($bundling['gambar_tertinggi'], '/') : null;
         }
 
@@ -145,6 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'data' => [
                 'transaksi' => $transaksi,
                 'produk' => $produk,
+                 'harga_modal' => $total_harga_modal,
                 'produk_bundling' => $bundling ?: null, // Jika tidak ada bundling, kembalikan null
                 'laporan' => $laporan
             ]

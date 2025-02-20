@@ -203,29 +203,6 @@ WHERE pk.id_keranjang = ? AND pk.id_bundling IS NOT NULL";
         $stmtGetTotalProduk->execute([$id_keranjang]);
         $totalProdukSesudah = $stmtGetTotalProduk->fetchColumn();
 
-        if ($totalProdukSesudah == 0) {
-            // **Periksa apakah ada referensi di checkout terlebih dahulu**
-            $queryCheckCheckout = "SELECT COUNT(*) FROM checkout WHERE id_keranjang = ?";
-            $stmtCheckCheckout = $pdo->prepare($queryCheckCheckout);
-            $stmtCheckCheckout->execute([$id_keranjang]);
-            $checkoutCount = $stmtCheckCheckout->fetchColumn();
-
-            // Jika tidak ada referensi di checkout, baru bisa hapus keranjang
-            if ($checkoutCount == 0) {
-                $queryDeleteKeranjang = "DELETE FROM keranjang WHERE id = ?";
-                $stmtDeleteKeranjang = $pdo->prepare($queryDeleteKeranjang);
-                $stmtDeleteKeranjang->execute([$id_keranjang]);
-            } else {
-                echo json_encode([
-                    'success' => false,
-                    'error' => 'Tidak bisa menghapus keranjang yang masih memiliki referensi di checkout.'
-                ]);
-                $pdo->rollBack();
-                exit;
-            }
-        }
-
-
         $pdo->commit();
 
         echo json_encode([
@@ -233,6 +210,7 @@ WHERE pk.id_keranjang = ? AND pk.id_bundling IS NOT NULL";
             'message' => 'Pembayaran berhasil dan stok terupdate',
             'id_transaksi' => $id_transaksi,
             'nomor_order' => $nomor_order,
+            'harga_modal' => $total_harga_modal,
             'id_laporan' => $id_laporan,
             'id_toko' => $id_toko,
             'omset_penjualan' => $total_harga,

@@ -74,6 +74,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id_toko = $checkout['id_toko'];
         $total_harga = floatval($checkout['total_harga']);
         $id_pelanggan = $checkout['id_pelanggan'];
+        // Ambil data pelanggan dari database
+        $queryPelanggan = "SELECT nama_pelanggan, nomor_telepon, email FROM pelanggan WHERE id = ?";
+        $stmtPelanggan = $pdo->prepare($queryPelanggan);
+        $stmtPelanggan->execute([$id_pelanggan]);
+        $pelanggan = $stmtPelanggan->fetch(PDO::FETCH_ASSOC);
+
+        if (!$pelanggan) {
+            echo json_encode([
+                'success' => false,
+                'error' => 'Data pelanggan tidak ditemukan'
+            ]);
+            exit;
+        }
 
         $nomor_order = "ORD-" . date("dmY") . "-" . strtoupper(substr(md5(time()), 0, 8));
 
@@ -85,11 +98,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $customer_details = [
                 'id' => $id_pelanggan,
+                'first_name' => $pelanggan['nama_pelanggan'],
+                'phone' => $pelanggan['nomor_telepon'],
+                'email' => $pelanggan['email']
             ];
 
             $params = [
                 'transaction_details' => $transaction_details,
                 'customer_details' => $customer_details,
+                'enabled_payments' => ['bca_va', 'bni_va', 'permata_va', 'echannel'],
             ];
 
             // Generate Snap Token dari Midtrans
