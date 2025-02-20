@@ -10,7 +10,7 @@ $dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/../');
 $dotenv->load();
 $baseURL = $_ENV['APP_URL'] ?? 'http://posify.test';
 
-// ✅ Ambil data dari token JWT
+// 🔒 Ambil data dari token JWT
 $userData = validateToken();
 
 if (!$userData) {
@@ -37,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     try {
-        // 🔹 **Ambil detail transaksi dan id_checkout**
+        // 🔎 **Ambil detail transaksi dan id_checkout**
         $queryTransaksi = "
             SELECT 
                 t.nomor_order,
@@ -55,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmtTransaksi->execute([$id_transaksi, $id_toko]);
         $transaksi = $stmtTransaksi->fetch(PDO::FETCH_ASSOC);
 
-        // 🔹 **Pastikan transaksi ditemukan untuk toko dari token**
+        // 🛑 **Pastikan transaksi ditemukan untuk toko dari token**
         if (!$transaksi) {
             echo json_encode([
                 'success' => false,
@@ -66,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $id_checkout = $transaksi['id_checkout'];
 
-        // 🔹 **Ambil produk biasa yang ada dalam transaksi**
+        // 📦 **Ambil produk biasa yang ada dalam transaksi**
         $queryProduk = "
             SELECT 
                 p.nama_produk,
@@ -84,37 +84,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmtProduk->execute([$baseURL, $id_checkout]);
         $produk = $stmtProduk->fetchAll(PDO::FETCH_ASSOC);
 
-        // 🔹 **Ambil satu produk dengan harga jual tertinggi dalam bundling**
+        // 🎁 **Ambil satu produk dengan harga jual tertinggi dalam bundling**
         $queryBundling = "
-            SELECT 
-                b.id AS id_bundling,
-                b.nama_bundling,
-                p.id AS id_produk,
-                p.nama_produk,
-                p.harga_jual,
-                p.gambar,
-                CONCAT(?, '/', p.gambar) AS gambar_url
-            FROM bundling b
-            JOIN bundling_produk bp ON b.id = bp.id_bundling
-            JOIN produk p ON bp.id_produk = p.id
-            JOIN produkkeranjang pk ON pk.id_bundling = b.id
-            WHERE pk.id_keranjang = (SELECT id_keranjang FROM checkout WHERE id = ?)
-            ORDER BY p.harga_jual DESC
-            LIMIT 1";
-        $stmtBundling = $pdo->prepare($queryBundling);
-        $stmtBundling->execute([$baseURL, $id_checkout]);
-        $produkBundling = $stmtBundling->fetch(PDO::FETCH_ASSOC);
+    SELECT 
+        b.id AS id_bundling,
+        b.nama_bundling,
+        MAX(p.harga_jual) AS harga_jual,
+        SUM(p.harga_modal) AS total_harga_modal,
+        (SELECT p.nama_produk FROM produk p 
+         JOIN bundling_produk bp ON p.id = bp.id_produk 
+         WHERE bp.id_bundling = b.id 
+         ORDER BY p.harga_jual DESC LIMIT 1) AS nama_produk_tertinggi,
+        (SELECT p.gambar FROM produk p 
+         JOIN bundling_produk bp ON p.id = bp.id_produk 
+         WHERE bp.id_bundling = b.id 
+         ORDER BY p.harga_jual DESC LIMIT 1) AS gambar_tertinggi
+    FROM bundling b
+    JOIN bundling_produk bp ON b.id = bp.id_bundling
+    JOIN produk p ON bp.id_produk = p.id
+    JOIN produkkeranjang pk ON pk.id_bundling = b.id
+    WHERE pk.id_keranjang = (SELECT id_keranjang FROM checkout WHERE id = ?)
+    GROUP BY b.id, b.nama_bundling
+    LIMIT 1";
 
-        // 🔹 **Ambil informasi laporan keuangan berdasarkan id_toko dari JWT**
+        $stmtBundling = $pdo->prepare($queryBundling);
+        $stmtBundling->execute([$id_checkout]);
+        $bundling = $stmtBundling->fetch(PDO::FETCH_ASSOC);
+
+        if ($bundling) {
+            $bundling['harga_jual'] = floatval($bundling['harga_jual']);
+            $bundling['total_harga_modal'] = floatval($bundling['total_harga_modal']);
+            $bundling['gambar_url'] = !empty($bundling['gambar_tertinggi']) ? rtrim($baseURL, '/') . '/' . ltrim($bundling['gambar_tertinggi'], '/') : null;
+        }
+
+        // 📊 **Ambil informasi laporan keuangan berdasarkan id_toko dari JWT**
         $queryLaporan = "
             SELECT 
                 l.omset_penjualan,
                 l.biaya_komisi,
                 l.total_bersih
             FROM laporankeuangan l
-            WHERE l.id_toko = ?";
+            JOIN transaksilaporan tl ON l.id = tl.id_laporan
+            WHERE tl.id_transaksi = ? AND l.id_toko = ?";
         $stmtLaporan = $pdo->prepare($queryLaporan);
-        $stmtLaporan->execute([$id_toko]);
+        $stmtLaporan->execute([$id_transaksi, $id_toko]);
         $laporan = $stmtLaporan->fetch(PDO::FETCH_ASSOC);
 
         // **Pastikan laporan tidak kosong**
@@ -126,13 +139,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ];
         }
 
-        // 🔹 **Hasilkan respon JSON**
+        // 🔥 **Hasilkan respon JSON**
         echo json_encode([
             'success' => true,
             'data' => [
                 'transaksi' => $transaksi,
                 'produk' => $produk,
-                'produk_bundling' => $produkBundling ?: null, // Jika tidak ada bundling, kembalikan null
+                'produk_bundling' => $bundling ?: null, // Jika tidak ada bundling, kembalikan null
                 'laporan' => $laporan
             ]
         ]);

@@ -9,7 +9,7 @@ $dotenv->load();
 $secretKey = $_ENV['JWT_SECRET'];
 
 // Menambahkan Middleware untuk validasi token
-// include('../middlewares/auth_middleware.php'); 
+include('../middlewares/auth_middleware.php'); 
 // Include koneksi database dan konfigurasi
 include("./config/dbconnection.php");
 include("./config/helpers.php");
@@ -150,6 +150,9 @@ switch (true) {
         break;
     case preg_match('/^\/produk\/get-bundling$/', $path):
         include('./produk/get-bundling.php');
+        break;
+    case preg_match('/^\/produk\/delete-bundling$/', $path):
+        include('./produk/delete-bundling.php');
         break;
 
     // Toko

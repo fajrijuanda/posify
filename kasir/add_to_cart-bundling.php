@@ -57,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id_keranjang = $resultKeranjang['id'];
 
         // 🔹 **Ambil daftar produk dalam bundling**
-        $queryProdukBundling = "SELECT id_produk, jumlah FROM bundling_produk WHERE id_bundling = ?";
+        $queryProdukBundling = "SELECT id_produk FROM bundling_produk WHERE id_bundling = ?";
         $stmtProdukBundling = $pdo->prepare($queryProdukBundling);
         $stmtProdukBundling->execute([$id_bundling]);
         $produkBundling = $stmtProdukBundling->fetchAll(PDO::FETCH_ASSOC);
@@ -105,33 +105,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmtUpdate->execute([$newQuantity, $resultCheck['id']]);
         } else {
             // 🔹 **Jika bundling belum ada, tambahkan ke produkkeranjang dengan harga tertinggi**
-            $queryInsert = "INSERT INTO produkkeranjang (id_keranjang, id_bundling, kuantitas, harga_produk, deleted_at) VALUES (?, ?, ?, ?, NULL)";
+            $queryInsert = "INSERT INTO produkkeranjang (id_keranjang, id_bundling, id_produk, kuantitas, harga_produk, deleted_at) VALUES (?, ?, ?, ?, ?, NULL)";
             $stmtInsert = $pdo->prepare($queryInsert);
-            $stmtInsert->execute([$id_keranjang, $id_bundling, $jumlah, $harga_bundling]);
+
+            foreach ($produkBundling as $produk) {
+                $id_produk = $produk['id_produk'];
+                $stmtInsert->execute([$id_keranjang, $id_bundling, $id_produk, $jumlah, $harga_bundling]);
+            }
         }
 
-        // 🔹 **Kurangi jumlah di `bundling_produk`**
-        // foreach ($produkBundling as $produk) {
-        //     $id_produk = $produk['id_produk'];
-        //     $jumlah_kurang = $produk['jumlah'];
+        // 🔹 **Update total_produk langsung menjadi 1 tanpa perhitungan**
+        $queryUpdateKeranjang = "
+    UPDATE keranjang 
+    SET total_produk = 1
+    WHERE id = ?
+";
+        $stmtUpdateKeranjang = $pdo->prepare($queryUpdateKeranjang);
+        $stmtUpdateKeranjang->execute([$id_keranjang]);
 
-        //     // $queryUpdateBundlingProduk = "UPDATE bundling_produk SET jumlah = jumlah - ? WHERE id_bundling = ? AND id_produk = ?";
-        //     // $stmtUpdateBundlingProduk = $pdo->prepare($queryUpdateBundlingProduk);
-        //     // $stmtUpdateBundlingProduk->execute([$jumlah_kurang, $id_bundling, $id_produk]);
-
-        //     // $queryDeleteZero = "DELETE FROM bundling_produk WHERE id_bundling = ? AND id_produk = ? AND jumlah <= 0";
-        //     // $stmtDeleteZero = $pdo->prepare($queryDeleteZero);
-        //     // $stmtDeleteZero->execute([$id_bundling, $id_produk]);
-        // }
-
-        // 🔹 **Kurangi `total_jumlah` di tabel `bundling`**
-        // $queryUpdateBundling = "UPDATE bundling SET total_jumlah = total_jumlah - ? WHERE id = ?";
-        // $stmtUpdateBundling = $pdo->prepare($queryUpdateBundling);
-        // $stmtUpdateBundling->execute([$jumlah, $id_bundling]);
+        // 🔹 **Ambil nilai terbaru `total_produk` setelah update**
+        $queryGetTotalProduk = "
+    SELECT total_produk FROM keranjang WHERE id = ?
+";
+        $stmtGetTotalProduk = $pdo->prepare($queryGetTotalProduk);
+        $stmtGetTotalProduk->execute([$id_keranjang]);
+        $resultTotalProduk = $stmtGetTotalProduk->fetch(PDO::FETCH_ASSOC);
+        $total_produk = intval($resultTotalProduk['total_produk'] ?? 0);
 
         $pdo->commit();
 
-        echo json_encode(['success' => true, 'message' => 'Bundling berhasil ditambahkan ke keranjang']);
+        // 🔹 **Return response JSON dengan total_produk yang sudah diperbarui**
+        echo json_encode([
+            'success' => true,
+            'message' => 'Bundling berhasil ditambahkan ke keranjang',
+            'total_produk' => $total_produk
+        ]);
+
 
     } catch (PDOException $e) {
         $pdo->rollBack();

@@ -93,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
-        // **🔹 Insert Pembayaran**
+        // **ðŸ”¹ Insert Pembayaran**
         $queryPembayaran = "
             INSERT INTO pembayaran (id_checkout, metode_pembayaran, nominal, status, waktu_pembayaran)
             VALUES (?, ?, ?, 'completed', NOW())";
@@ -101,7 +101,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmtPembayaran->execute([$id_checkout, $metode_pembayaran, $total_harga]);
         $id_pembayaran = $pdo->lastInsertId();
 
-        // **🔹 Insert Transaksi**
+        // **ðŸ”¹ Insert Transaksi**
         $queryTransaksi = "
             INSERT INTO transaksi (id_pembayaran, nomor_order, waktu_transaksi, status,created_at)
             VALUES (?, ?, NOW(), 'completed',NOW())";
@@ -109,25 +109,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmtTransaksi->execute([$id_pembayaran, $nomor_order]);
         $id_transaksi = $pdo->lastInsertId();
 
-        // **🔹 Laporan Keuangan**
-        $biaya_komisi = $total_harga * 0.025;
-        $total_bersih = $total_harga - $biaya_komisi;
+        // ðŸ”¹ Hitung total harga modal untuk produk biasa
+        $queryTotalModalProduk = "
+SELECT SUM(p.harga_modal * pk.kuantitas) AS total_harga_modal_produk
+FROM produkkeranjang pk
+JOIN produk p ON pk.id_produk = p.id
+WHERE pk.id_keranjang = ? AND pk.id_bundling IS NULL";
+        $stmtTotalModalProduk = $pdo->prepare($queryTotalModalProduk);
+        $stmtTotalModalProduk->execute([$id_keranjang]);
+        $total_harga_modal_produk = $stmtTotalModalProduk->fetchColumn() ?? 0;
 
+        // ðŸ”¹ Hitung total harga modal untuk produk bundling (langsung dari tabel bundling)
+        $queryTotalModalBundling = "
+SELECT SUM(bp.harga_modal * pk.kuantitas) AS total_harga_modal_bundling
+FROM produkkeranjang pk
+JOIN bundling_produk bp ON pk.id_bundling = bp.id
+WHERE pk.id_keranjang = ? AND pk.id_bundling IS NOT NULL";
+        $stmtTotalModalBundling = $pdo->prepare($queryTotalModalBundling);
+        $stmtTotalModalBundling->execute([$id_keranjang]);
+        $total_harga_modal_bundling = $stmtTotalModalBundling->fetchColumn() ?? 0;
+
+        // ðŸ”¹ Total harga modal dihitung ulang
+        $total_harga_modal = $total_harga_modal_produk + $total_harga_modal_bundling;
+
+        // ðŸ”¹ Hitung Keuntungan & Biaya Komisi (2.5%)
+        $keuntungan = $total_harga - $total_harga_modal;
+        $biaya_komisi = max(0, $keuntungan * 0.025);
+        $total_bersih = $total_harga - $total_harga_modal - $biaya_komisi - $total_harga_modal;
+
+        // ðŸ”¹ Insert Laporan Keuangan
         $queryLaporanKeuangan = "
-            INSERT INTO laporankeuangan (id_toko, omset_penjualan, biaya_komisi, total_bersih, tanggal)
-            VALUES (?, ?, ?, ?, NOW())";
+         INSERT INTO laporankeuangan (id_toko, omset_penjualan, biaya_komisi, total_bersih, tanggal)
+         VALUES (?, ?, ?, ?, NOW())";
         $stmtLaporanKeuangan = $pdo->prepare($queryLaporanKeuangan);
         $stmtLaporanKeuangan->execute([$id_toko, $total_harga, $biaya_komisi, $total_bersih]);
         $id_laporan = $pdo->lastInsertId();
 
-        // **🔹 Insert Transaksi Laporan**
+        // **ðŸ”¹ Insert Transaksi Laporan**
         $queryTransaksiLaporan = "
             INSERT INTO transaksilaporan (id_transaksi, id_laporan)
             VALUES (?, ?)";
         $stmtTransaksiLaporan = $pdo->prepare($queryTransaksiLaporan);
         $stmtTransaksiLaporan->execute([$id_transaksi, $id_laporan]);
 
-        // **🔹 Kurangi stok di produk & produkkeranjang**
+        // **ðŸ”¹ Kurangi stok di produk & produkkeranjang**
         $queryProdukKeranjang = "
             SELECT pk.id, pk.id_produk, pk.kuantitas, p.stok
             FROM produkkeranjang pk
@@ -167,38 +192,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $totalProdukSebelum = 0;
 
 
-       // **🔹 Update total produk di keranjang**
-$queryUpdateKeranjang = "UPDATE keranjang SET total_produk = total_produk - ? WHERE id = ?";
-$stmtUpdateKeranjang = $pdo->prepare($queryUpdateKeranjang);
-$stmtUpdateKeranjang->execute([$totalProdukSebelum, $id_keranjang]);
+        // **ðŸ”¹ Update total produk di keranjang**
+        $queryUpdateKeranjang = "UPDATE keranjang SET total_produk = total_produk - ? WHERE id = ?";
+        $stmtUpdateKeranjang = $pdo->prepare($queryUpdateKeranjang);
+        $stmtUpdateKeranjang->execute([$totalProdukSebelum, $id_keranjang]);
 
-// **Hapus keranjang jika total_produk akhirnya 0**
-$queryGetTotalProduk = "SELECT total_produk FROM keranjang WHERE id = ?";
-$stmtGetTotalProduk = $pdo->prepare($queryGetTotalProduk);
-$stmtGetTotalProduk->execute([$id_keranjang]);
-$totalProdukSesudah = $stmtGetTotalProduk->fetchColumn();
+        // **Hapus keranjang jika total_produk akhirnya 0**
+        $queryGetTotalProduk = "SELECT total_produk FROM keranjang WHERE id = ?";
+        $stmtGetTotalProduk = $pdo->prepare($queryGetTotalProduk);
+        $stmtGetTotalProduk->execute([$id_keranjang]);
+        $totalProdukSesudah = $stmtGetTotalProduk->fetchColumn();
 
-if ($totalProdukSesudah == 0) {
-    // **Periksa apakah ada referensi di checkout terlebih dahulu**
-    $queryCheckCheckout = "SELECT COUNT(*) FROM checkout WHERE id_keranjang = ?";
-    $stmtCheckCheckout = $pdo->prepare($queryCheckCheckout);
-    $stmtCheckCheckout->execute([$id_keranjang]);
-    $checkoutCount = $stmtCheckCheckout->fetchColumn();
+        if ($totalProdukSesudah == 0) {
+            // **Periksa apakah ada referensi di checkout terlebih dahulu**
+            $queryCheckCheckout = "SELECT COUNT(*) FROM checkout WHERE id_keranjang = ?";
+            $stmtCheckCheckout = $pdo->prepare($queryCheckCheckout);
+            $stmtCheckCheckout->execute([$id_keranjang]);
+            $checkoutCount = $stmtCheckCheckout->fetchColumn();
 
-    // Jika tidak ada referensi di checkout, baru bisa hapus keranjang
-    if ($checkoutCount == 0) {
-        $queryDeleteKeranjang = "DELETE FROM keranjang WHERE id = ?";
-        $stmtDeleteKeranjang = $pdo->prepare($queryDeleteKeranjang);
-        $stmtDeleteKeranjang->execute([$id_keranjang]);
-    } else {
-        echo json_encode([
-            'success' => false,
-            'error' => 'Tidak bisa menghapus keranjang yang masih memiliki referensi di checkout.'
-        ]);
-        $pdo->rollBack();
-        exit;
-    }
-}
+            // Jika tidak ada referensi di checkout, baru bisa hapus keranjang
+            if ($checkoutCount == 0) {
+                $queryDeleteKeranjang = "DELETE FROM keranjang WHERE id = ?";
+                $stmtDeleteKeranjang = $pdo->prepare($queryDeleteKeranjang);
+                $stmtDeleteKeranjang->execute([$id_keranjang]);
+            } else {
+                echo json_encode([
+                    'success' => false,
+                    'error' => 'Tidak bisa menghapus keranjang yang masih memiliki referensi di checkout.'
+                ]);
+                $pdo->rollBack();
+                exit;
+            }
+        }
 
 
         $pdo->commit();

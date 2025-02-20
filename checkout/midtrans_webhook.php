@@ -95,26 +95,38 @@ try {
         $id_transaksi = $transaksi['id'];
         $id_pembayaran = $transaksi['id_pembayaran'];
 
-        // **3️⃣ Hitung biaya komisi dan total bersih**
-        $biaya_komisi = $total_harga * 0.025;
+         // ðŸ”¹ Hitung total harga modal untuk produk biasa
+         $queryTotalModalProduk = "
+         SELECT SUM(p.harga_modal * pk.kuantitas) AS total_harga_modal_produk
+         FROM produkkeranjang pk
+         JOIN produk p ON pk.id_produk = p.id
+         WHERE pk.id_keranjang = ? AND pk.id_bundling IS NULL";
+                 $stmtTotalModalProduk = $pdo->prepare($queryTotalModalProduk);
+                 $stmtTotalModalProduk->execute([$id_keranjang]);
+                 $total_harga_modal_produk = $stmtTotalModalProduk->fetchColumn() ?? 0;
+         
+                 // ðŸ”¹ Hitung total harga modal untuk produk bundling (langsung dari tabel bundling)
+                 $queryTotalModalBundling = "
+         SELECT SUM(bp.harga_modal * pk.kuantitas) AS total_harga_modal_bundling
+         FROM produkkeranjang pk
+         JOIN bundling_produk bp ON pk.id_bundling = bp.id
+         WHERE pk.id_keranjang = ? AND pk.id_bundling IS NOT NULL";
+                 $stmtTotalModalBundling = $pdo->prepare($queryTotalModalBundling);
+                 $stmtTotalModalBundling->execute([$id_keranjang]);
+                 $total_harga_modal_bundling = $stmtTotalModalBundling->fetchColumn() ?? 0;
+         
+                 // ðŸ”¹ Total harga modal dihitung ulang
+                 $total_harga_modal = $total_harga_modal_produk + $total_harga_modal_bundling;
+         
+                 // ðŸ”¹ Hitung Keuntungan & Biaya Komisi (2.5%)
+                 $keuntungan = $total_harga - $total_harga_modal;
+                 $biaya_komisi = max(0, $keuntungan * 0.025);
+                 $total_bersih = $total_harga - $total_harga_modal - $biaya_komisi - $total_harga_modal;
 
-        // **4️⃣ Ambil harga modal dari semua produk yang ada dalam transaksi ini**
-        $queryHargaModal = "
-            SELECT SUM(p.harga_modal) AS total_modal
-            FROM produkkeranjang pk
-            JOIN produk p ON pk.id_produk = p.id
-            WHERE pk.id_keranjang = ?";
-        $stmtHargaModal = $pdo->prepare($queryHargaModal);
-        $stmtHargaModal->execute([$id_keranjang]);
-        $harga_modal = floatval($stmtHargaModal->fetchColumn());
-
-        // **5️⃣ Hitung total bersih**
-        $total_bersih = $total_harga - $biaya_komisi - $harga_modal;
-
-        // **6️⃣ Simpan data laporan keuangan**
+        // 🔹 Insert Laporan Keuangan
         $queryLaporanKeuangan = "
-        INSERT INTO laporankeuangan (id_toko, omset_penjualan, biaya_komisi, total_bersih, tanggal)
-        VALUES (?, ?, ?, ?, NOW())"; // NOW() untuk menyimpan tanggal saat transaksi dilakukan
+         INSERT INTO laporankeuangan (id_toko, omset_penjualan, biaya_komisi, total_bersih, tanggal)
+         VALUES (?, ?, ?, ?, NOW())";
         $stmtLaporanKeuangan = $pdo->prepare($queryLaporanKeuangan);
         $stmtLaporanKeuangan->execute([$id_toko, $total_harga, $biaya_komisi, $total_bersih]);
         $id_laporan = $pdo->lastInsertId();
